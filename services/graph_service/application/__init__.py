@@ -1,3 +1,6 @@
 from .node_builder import NodeBuilder
 from .relationship_builder import RelationshipBuilder
 from .graph_builder import GraphBuilder
+from .graph_query_service import GraphQueryService
+from .call_graph_service import CallGraphService
+from .dependency_traversal_service import DependencyTraversalService

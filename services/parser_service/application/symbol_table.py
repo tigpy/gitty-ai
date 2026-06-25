@@ -5,9 +5,19 @@ class SymbolTable:
         # Maps local symbol name -> fully qualified name
         # e.g., 'UserService' -> 'user.service.UserService'
         self._symbols: Dict[str, str] = {}
+        # Maps fully qualified name -> node ID
+        self._fqn_to_node_id: Dict[str, str] = {}
 
     def register_symbol(self, local_name: str, fully_qualified_name: str) -> None:
         self._symbols[local_name] = fully_qualified_name
+
+    def register_node_id(self, fqn: str, node_id: str) -> None:
+        self._fqn_to_node_id[fqn] = node_id
+
+    def get_node_id(self, fqn: str) -> Optional[str]:
+        if fqn in self._fqn_to_node_id:
+            return self._fqn_to_node_id[fqn]
+        return None
 
     def resolve_symbol(self, local_name: str) -> Optional[str]:
         # Check direct match
@@ -25,3 +35,4 @@ class SymbolTable:
 
     def clear(self) -> None:
         self._symbols.clear()
+        self._fqn_to_node_id.clear()

@@ -73,6 +73,11 @@ class LocalFileWalker(IFileWalker):
                     continue
 
                 abs_path = os.path.join(dirpath, filename)
+                real_root = os.path.normcase(os.path.realpath(root_path))
+                real_file = os.path.normcase(os.path.realpath(abs_path))
+                if not (real_file == real_root or real_file.startswith(real_root + os.path.sep)):
+                    continue
+
                 try:
                     size = os.path.getsize(abs_path)
                     extension = os.path.splitext(filename)[1]

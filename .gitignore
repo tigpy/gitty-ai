@@ -1,1 +1,17 @@
 node_modules/
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+gitty_graph.db*
+data/
+.env
+.gitty_graph.db.swp
+dist/
+build/
+.coverage
+htmlcov/
+*.log

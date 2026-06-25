@@ -19,6 +19,10 @@ class MockNodeRepository(INodeRepository):
         return None
     def remove_node(self, node_id: str) -> None:
         pass
+    def get_nodes_by_type(self, node_type: str) -> List[Dict[str, Any]]:
+        return []
+    def get_nodes_by_repository(self, repo_id: str) -> List[Dict[str, Any]]:
+        return []
 
 class MockEdgeRepository(IEdgeRepository):
     def add_edge(self, from_id: str, to_id: str, edge_type: str, properties: Dict[str, Any]) -> None:
@@ -26,6 +30,8 @@ class MockEdgeRepository(IEdgeRepository):
     def remove_edge(self, from_id: str, to_id: str, edge_type: str) -> None:
         pass
     def get_outbound_edges(self, node_id: str) -> List[Dict[str, Any]]:
+        return []
+    def get_inbound_edges(self, node_id: str) -> List[Dict[str, Any]]:
         return []
 
 class MockTraversalRepository(ITraversalRepository):

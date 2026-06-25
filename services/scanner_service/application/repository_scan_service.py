@@ -1,6 +1,6 @@
 import uuid
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 from ..domain.interfaces.repository_scanner import IRepositoryScanner
 from .file_discovery_service import FileDiscoveryService
@@ -30,14 +30,18 @@ class RepositoryScanService:
         if not repo_id:
             repo_id = str(uuid.uuid4())
 
+        from libs.common.progress import publish_progress
+        publish_progress(repo_id, "processing", "Cloning repository...")
+
         root_path = self.scanner.clone_or_fetch(repo_url, working_dir)
+        publish_progress(repo_id, "processing", "✓ Cloned repository")
 
         # Publish RepositoryDiscoveredV1 event
         if self.publisher:
             repo_name = os.path.basename(repo_url.rstrip("/")).replace(".git", "")
             discovered_event = RepositoryDiscoveredV1(
                 event_id=str(uuid.uuid4()),
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 repository_id=repo_id,
                 name=repo_name,
                 root_path=root_path,
@@ -45,6 +49,7 @@ class RepositoryScanService:
             )
             self.publisher.publish("repository.discovered", discovered_event)
 
+        publish_progress(repo_id, "processing", "Scanning files...")
         files = self.discovery_service.discover_files(root_path)
         
         # Enrich discovered files with language mapping
@@ -55,7 +60,7 @@ class RepositoryScanService:
         if self.publisher:
             indexed_event = RepositoryIndexedV1(
                 event_id=str(uuid.uuid4()),
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 repository_id=repo_id,
                 repository_url=repo_url,
                 indexed_files_count=len(files),

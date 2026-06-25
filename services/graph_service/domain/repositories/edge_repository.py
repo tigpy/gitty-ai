@@ -22,3 +22,8 @@ class IEdgeRepository(ABC):
     def get_outbound_edges(self, node_id: str) -> List[Dict[str, Any]]:
         """Gets all outgoing edges for a given node."""
         pass
+
+    @abstractmethod
+    def get_inbound_edges(self, node_id: str) -> List[Dict[str, Any]]:
+        """Gets all incoming edges for a given node."""
+        pass

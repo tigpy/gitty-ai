@@ -4,5 +4,21 @@ from .schemas import (
     GraphBuiltV1,
     EmbeddingCreatedV1,
     DeadCodeDetectedV1,
-    VulnerabilityFoundV1
+    DeadModuleDetectedV1,
+    DeadCodeAnalysisCompletedV1,
+    VulnerabilityFoundV1,
+    Severity,
+    SecurityIssueDetectedV1,
+    CriticalSecurityFindingV1,
+    SecurityScanCompletedV1,
+    VectorIndexBuildRequestedV1,
+    VectorIndexBuiltV1,
+    SemanticSearchCompletedV1,
+    RepositoryQuestionAskedV1,
+    RepositoryAnswerGeneratedV1,
+    RepositoryAnswerFailedV1,
+    ConversationStartedV1,
+    ConversationMessageAddedV1,
+    ConversationEndedV1,
+    ConversationContextRetrievedV1
 )

@@ -1,20 +1,30 @@
 import sqlite3
 import json
 from typing import Dict, List, Any, Optional
+from contextlib import contextmanager
 from ...domain.repositories.graph_repository import IGraphRepository
 from ...domain.repositories.node_repository import INodeRepository
 from ...domain.repositories.edge_repository import IEdgeRepository
 from ...domain.repositories.traversal_repository import ITraversalRepository
+from ..sqlite_connection_factory import SQLiteConnectionFactory
 
 class SQLiteGraphRepository(IGraphRepository, INodeRepository, IEdgeRepository, ITraversalRepository):
     def __init__(self, db_path: str = "gitty_graph.db"):
+        self.connection_factory = SQLiteConnectionFactory(db_path)
         self.db_path = db_path
         self.create_database()
 
+    @contextmanager
     def _get_connection(self):
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+        conn = self.connection_factory.create_connection()
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def create_database(self) -> None:
         with self._get_connection() as conn:
@@ -112,6 +122,23 @@ class SQLiteGraphRepository(IGraphRepository, INodeRepository, IEdgeRepository, 
                 return dict(row)
             return None
 
+    def list_repositories(self) -> List[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM repositories ORDER BY indexed_at DESC")
+            return [dict(r) for r in cursor.fetchall()]
+
+    def delete_repository(self, repo_id: str) -> None:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            node_ids = self.traverse_bfs(repo_id, edge_types=[])
+            if node_ids:
+                placeholders = ",".join("?" for _ in node_ids)
+                cursor.execute(f"DELETE FROM relationships WHERE source_node IN ({placeholders}) OR target_node IN ({placeholders})", node_ids + node_ids)
+                cursor.execute(f"DELETE FROM nodes WHERE id IN ({placeholders})", node_ids)
+            cursor.execute("DELETE FROM repositories WHERE id = ?", (repo_id,))
+            conn.commit()
+
     # Node operations
     def add_node(self, node_id: str, label: str, properties: Dict[str, Any]) -> None:
         # Separate schema properties (name, path) from arbitrary metadata
@@ -153,6 +180,28 @@ class SQLiteGraphRepository(IGraphRepository, INodeRepository, IEdgeRepository, 
             cursor.execute("DELETE FROM nodes WHERE id = ?", (node_id,))
             conn.commit()
 
+    def get_nodes_by_type(self, node_type: str) -> List[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM nodes WHERE type = ?", (node_type,))
+            rows = cursor.fetchall()
+            res = []
+            for r in rows:
+                res_dict = dict(r)
+                meta = json.loads(res_dict["metadata"] or "{}")
+                res_dict.update(meta)
+                res.append(res_dict)
+            return res
+
+    def get_nodes_by_repository(self, repo_id: str) -> List[Dict[str, Any]]:
+        node_ids = self.traverse_bfs(repo_id, edge_types=[])
+        res = []
+        for nid in node_ids:
+            node = self.get_node(nid)
+            if node:
+                res.append(node)
+        return res
+
     # Edge operations
     def add_edge(self, from_id: str, to_id: str, edge_type: str, properties: Dict[str, Any]) -> None:
         edge_id = f"{from_id}->{edge_type}->{to_id}"
@@ -179,6 +228,13 @@ class SQLiteGraphRepository(IGraphRepository, INodeRepository, IEdgeRepository, 
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM relationships WHERE source_node = ?", (node_id,))
+            rows = cursor.fetchall()
+            return [dict(r) for r in rows]
+
+    def get_inbound_edges(self, node_id: str) -> List[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM relationships WHERE target_node = ?", (node_id,))
             rows = cursor.fetchall()
             return [dict(r) for r in rows]
 

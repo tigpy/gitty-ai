@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 from dependency_injector.wiring import inject, Provide
-from datetime import datetime
+from datetime import datetime, timezone
 from ...core.container import ApplicationContainer
 from ...core.providers import ConnectionChecker
 
@@ -23,7 +23,7 @@ def get_health(
     return {
         "status": "healthy" if is_healthy else "unhealthy",
         "version": "1.0.0",
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "services": {
             "redis": redis_status,
             "rabbitmq": rabbitmq_status,

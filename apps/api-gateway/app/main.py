@@ -1,4 +1,22 @@
 import uvicorn
+import os
+import sys
+
+# Ensure project root is in sys.path to find libs and services
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+# If 'libs' namespace package was already loaded by Uvicorn/environment,
+# its cached __path__ won't include our directory. We must insert it.
+if 'libs' in sys.modules:
+    libs_mod = sys.modules['libs']
+    local_libs = os.path.join(project_root, "libs")
+    if hasattr(libs_mod, "__path__") and local_libs not in libs_mod.__path__:
+        if not isinstance(libs_mod.__path__, list):
+            libs_mod.__path__ = list(libs_mod.__path__)
+        libs_mod.__path__.insert(0, local_libs)
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from libs.logging import configure_logging, get_logger
@@ -16,11 +34,21 @@ container = ApplicationContainer()
 container.config.from_dict(settings.model_dump())
 container.wire(packages=["app.api.v1"])
 
+from fastapi.middleware.cors import CORSMiddleware
+
 # Initialize FastAPI application
 app = FastAPI(
     title="Gitty AI API Gateway",
     description="AI-Powered Repository Knowledge Graph Platform API Gateway",
     version="1.0.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Exception handlers

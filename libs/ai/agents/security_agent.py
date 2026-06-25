@@ -1,19 +1,60 @@
-from typing import Dict, Any
-from .base_agent import BaseAgent
+from typing import Dict, Any, List
+from .base_agent import BaseAgent, AgentResult
 
 class SecurityAgent(BaseAgent):
-    def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        if not self.validate(input_data):
-            return {"status": "error", "message": "Missing file_path"}
-        context = self.prepare_context(input_data)
-        return {
-            "status": "success",
-            "agent": "SecurityAgent",
-            "findings": []
-        }
+    @property
+    def agent_name(self) -> str:
+        return "SecurityAgent"
 
-    def validate(self, input_data: Dict[str, Any]) -> bool:
-        return "file_path" in input_data
-
-    def prepare_context(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        return {"file_path": input_data["file_path"]}
+    def analyze(self, repository_id: str, context: Dict[str, Any]) -> AgentResult:
+        from services.graph_service.infrastructure.repositories.graph_repository_factory import get_graph_repository
+        from services.security_service.application.security_analysis_service import SecurityAnalysisService
+        
+        try:
+            repo = get_graph_repository()
+            service = SecurityAnalysisService(repo)
+            report = service.run_security_scan(repository_id)
+            
+            findings = []
+            recommendations = []
+            max_severity_val = 0
+            severity_str = "INFO"
+            
+            severity_weights = {
+                "CRITICAL": 4,
+                "HIGH": 3,
+                "MEDIUM": 2,
+                "LOW": 1,
+                "INFO": 0
+            }
+            
+            for f in report.findings:
+                findings.append(f"[{f.severity}] {f.rule_id} in {f.file_path}:{f.line_number} - {f.description}")
+                recommendations.append(f"Fix {f.rule_id} in {f.file_path}: {f.recommendation}")
+                val = severity_weights.get(f.severity, 0)
+                if val > max_severity_val:
+                    max_severity_val = val
+                    severity_str = f.severity
+                    
+            score = float(report.security_score)
+            
+            return AgentResult(
+                agent_name=self.agent_name,
+                score=score,
+                findings=findings,
+                recommendations=recommendations,
+                severity=severity_str,
+                metadata={
+                    "findings": [f.model_dump() for f in report.findings],
+                    "security_score": report.security_score
+                }
+            )
+        except Exception as e:
+            return AgentResult(
+                agent_name=self.agent_name,
+                score=100.0,
+                findings=[f"Failed to scan security: {str(e)}"],
+                recommendations=["Ensure static analyzers run successfully."],
+                severity="INFO",
+                metadata={"error": str(e), "status": "failed"}
+            )

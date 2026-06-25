@@ -23,11 +23,19 @@ class SystemSettings(BaseSettings):
     QDRANT_HOST: str = "localhost"
     QDRANT_PORT: int = 6333
 
-    # LLM Settings
     OPENAI_API_KEY: Optional[str] = None
     GEMINI_API_KEY: Optional[str] = None
     CLAUDE_API_KEY: Optional[str] = None
     OLLAMA_URI: str = "http://localhost:11434"
+    LLM_PROVIDER: str = "ollama"
+    LLM_MODEL: str = "llama3"
+    CHAT_HISTORY_LIMIT: int = 10
+
+
+    # Architecture Smell Thresholds
+    GITTY_SMELL_FAN_IN_THRESHOLD: int = 10
+    GITTY_SMELL_FAN_OUT_THRESHOLD: int = 10
+    GITTY_SMELL_MODULE_SIZE_THRESHOLD: int = 750
 
     model_config = SettingsConfigDict(
         env_file=".env",

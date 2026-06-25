@@ -16,3 +16,13 @@ class INodeRepository(ABC):
     def remove_node(self, node_id: str) -> None:
         """Removes a node and its adjacent edges."""
         pass
+
+    @abstractmethod
+    def get_nodes_by_type(self, node_type: str) -> List[Dict[str, Any]]:
+        """Retrieves all nodes of a given type/label."""
+        pass
+
+    @abstractmethod
+    def get_nodes_by_repository(self, repo_id: str) -> List[Dict[str, Any]]:
+        """Retrieves all nodes belonging to a repository."""
+        pass

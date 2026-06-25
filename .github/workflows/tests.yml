@@ -24,7 +24,7 @@ jobs:
 
       - name: Run Python tests
         run: |
-          pytest
+          pytest -W error::ResourceWarning -W error::RuntimeWarning
 
       - name: Set up Node.js
         uses: actions/setup-node@v3
