@@ -82,20 +82,42 @@ class DeadCodeDetectionService:
 
         return {"confidence_score": score, "confidence_level": level}
 
+    def _build_called_function_ids(self, nodes: List[Dict[str, Any]]) -> set:
+        """
+        Builds the set of function node IDs that are referenced by at least one CallNode via
+        a BELONGS_TO edge.  A function is "live" if any CallNode points to it.
+
+        Graph shape written by GraphBuilder:
+            FunctionNode --CALLS--> CallNode --BELONGS_TO--> target_func_id
+
+        So we collect every *target_node* of a BELONGS_TO edge that originates from a CallNode.
+        """
+        call_node_ids = {n["id"] for n in nodes if n["type"] == "Call"}
+        referenced: set = set()
+        for cid in call_node_ids:
+            for edge in self.repository.get_outbound_edges(cid):
+                if edge["relationship_type"] == "BELONGS_TO":
+                    referenced.add(edge["target_node"])
+        return referenced
+
     def detect_unused_functions(self, nodes: List[Dict[str, Any]], repo_id: str) -> List[Dict[str, Any]]:
-        """Identifies functions with zero inbound CALLS/BELONGS_TO references, excluding routes/tasks/dunders."""
+        """Identifies functions with zero inbound call references, excluding routes/tasks/dunders."""
         unused = []
         functions = [n for n in nodes if n["type"] == "Function"]
-        
+
+        # Pre-compute the set of function IDs that are called anywhere in the repo.
+        # This is O(call_nodes) instead of O(functions * edges).
+        called_ids = self._build_called_function_ids(nodes)
+
         for func in functions:
             func_name = func.get("name", "")
             func_id = func["id"]
             path = func.get("path", "")
-            
+
             # Skip dunder methods
             if func_name in DUNDER_METHODS or (func_name.startswith("__") and func_name.endswith("__")):
                 continue
-                
+
             # Skip entrypoint file functions
             if os.path.basename(path) in ENTRYPOINT_FILES:
                 continue
@@ -120,11 +142,10 @@ class DeadCodeDetectionService:
             if is_excluded_decorator:
                 continue
 
-            # Query inbound edges
-            inbound = self.repository.get_inbound_edges(func_id)
-            belongs_to_calls = [e for e in inbound if e["relationship_type"] == "BELONGS_TO"]
-            
-            if not belongs_to_calls:
+            # A function is considered live if any CallNode targets it via BELONGS_TO.
+            # We use the pre-built called_ids set for O(1) lookup instead of per-node
+            # inbound edge queries (which were incorrectly using BELONGS_TO before).
+            if func_id not in called_ids:
                 conf = self.calculate_confidence("Function", path, func)
                 unused.append({
                     "id": func_id,
@@ -136,21 +157,22 @@ class DeadCodeDetectionService:
         return unused
 
     def detect_orphan_classes(self, nodes: List[Dict[str, Any]], repo_id: str) -> List[Dict[str, Any]]:
-        """Identifies classes with zero inherits or call instantiation references."""
+        """Identifies classes with zero inbound INHERITS or CALLS (instantiation) references."""
         unused = []
         classes = [n for n in nodes if n["type"] == "Class"]
-        
+
         for cls in classes:
             class_name = cls.get("name", "")
             class_id = cls["id"]
             path = cls.get("path", "")
 
-            # Query inbound edges
             inbound = self.repository.get_inbound_edges(class_id)
+            # A class is referenced if something inherits from it OR directly calls it
+            # (instantiation shows up as a CALLS edge from a function to the class node).
             inherits_edges = [e for e in inbound if e["relationship_type"] == "INHERITS"]
-            instantiation_edges = [e for e in inbound if e["relationship_type"] == "BELONGS_TO"]
+            call_edges = [e for e in inbound if e["relationship_type"] == "CALLS"]
 
-            if not inherits_edges and not instantiation_edges:
+            if not inherits_edges and not call_edges:
                 conf = self.calculate_confidence("Class", path, cls)
                 unused.append({
                     "id": class_id,
@@ -361,6 +383,60 @@ class DeadCodeDetectionService:
 
         return max(0, score)
 
+    def _detect_unused_imports(self, nodes: List[Dict[str, Any]], repo_id: str) -> List[Dict[str, Any]]:
+        """
+        Detects unused imports by comparing Import nodes in each file against the
+        call names recorded in that file's Call nodes.
+
+        An import is considered used if its name (or alias) appears in at least one
+        Call node path recorded under the same file.
+        """
+        unused = []
+
+        # Build per-file call name set from Call nodes
+        file_call_names: Dict[str, set] = {}
+        for n in nodes:
+            if n["type"] == "Call":
+                path = n.get("path", "")
+                call_name = n.get("name", "")
+                if path and call_name:
+                    # A call like "os.path.join" registers both "os" and "os.path" as used roots
+                    parts = call_name.split(".")
+                    for i in range(1, len(parts) + 1):
+                        file_call_names.setdefault(path, set()).add(".".join(parts[:i]))
+
+        # Walk Import nodes
+        for n in nodes:
+            if n["type"] != "Import":
+                continue
+            path = n.get("path", "")
+            import_name = n.get("name", "")  # format: "module.name" or just "name"
+            meta = n.get("metadata", {}) or {}
+            alias = meta.get("alias") or None
+
+            # The effective local name is the alias if present, otherwise the last segment
+            local_name = alias if alias else import_name.split(".")[-1]
+            root_module = import_name.split(".")[0] if import_name else ""
+
+            call_names_in_file = file_call_names.get(path, set())
+
+            is_used = (
+                local_name in call_names_in_file
+                or root_module in call_names_in_file
+                or import_name in call_names_in_file
+            )
+
+            if not is_used:
+                unused.append({
+                    "id": n["id"],
+                    "name": import_name,
+                    "alias": alias,
+                    "path": path,
+                    "local_name": local_name,
+                })
+
+        return unused
+
     def run_analysis(self, repo_id: str) -> DeadCodeReport:
         """Runs the complete analysis, saves results, and broadcasts completed/detected events."""
         nodes = self.repository.get_nodes_by_repository(repo_id)
@@ -398,9 +474,10 @@ class DeadCodeDetectionService:
         dead_classes = [c for c in dead_classes if c["path"] not in dead_paths]
 
         smells = self.detect_architecture_smells(nodes, repo_id)
-        
-        # Temporary unused imports (mocked/reused query service functionality)
-        unused_imports = []
+
+        # Detect unused imports: walk Import nodes and check if any Function/Class in the
+        # same file references the imported symbol name in a Call or Attribute access.
+        unused_imports = self._detect_unused_imports(nodes, repo_id)
 
         # Calculate average confidence
         total_score = 0.0

@@ -196,9 +196,9 @@ class GraphBuilder:
             target_func_id = self.symbol_table.get_node_id(resolved_target)
             if not target_func_id:
                 target_func_id = hashlib.sha256(resolved_target.encode()).hexdigest()
-                
+
             rel_belongs = self.rb.build_relationship(call_node.id, target_func_id, "BELONGS_TO")
             self.repository.add_edge(rel_belongs.source_node, rel_belongs.target_node, rel_belongs.relationship_type, rel_belongs.metadata)
-            edges_count += 2 # counts as another edge link
+            edges_count += 1  # one edge for BELONGS_TO (CALLS edge already counted above)
 
         return edges_count

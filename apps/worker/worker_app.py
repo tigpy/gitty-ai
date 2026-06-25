@@ -105,30 +105,30 @@ def index_repository(repository_id: str, repo_url: str):
         
     root_path = scan_res["root_path"]
     files = scan_res["files"]
-    
+
     # 4. Parse files into IR Modules
     from libs.common.progress import publish_progress
     publish_progress(repository_id, "processing", "Parsing Python files...")
     parser_factory = ParserFactory()
     modules = []
 
+    # Log a concise language breakdown instead of a raw slice of filenames
+    from collections import Counter
+    lang_counts = Counter(str(f.get("language", "unknown")).lower() for f in files)
     logger.info(
         "Scan completed",
         repository_id=repository_id,
-        total_files=len(files)
+        total_files=len(files),
+        by_language=dict(lang_counts),
     )
 
-    for f in files[:20]:
-        logger.info(
-            "Discovered file",
-            path=f.get("path"),
-            language=f.get("language")
-        )
+    skipped_non_python = 0
 
     for f_info in files:
         language = str(f_info.get("language", "")).lower()
 
         if language != "python":
+            skipped_non_python += 1
             continue
 
         f_path = f_info["path"]
@@ -212,8 +212,15 @@ def index_repository(repository_id: str, repo_url: str):
         "Parser summary",
         repository_id=repository_id,
         files_discovered=len(files),
-        modules_created=len(modules)
+        modules_created=len(modules),
+        skipped_non_python=skipped_non_python,
     )
+    if skipped_non_python:
+        logger.warning(
+            "Non-Python files were skipped — Java/JS/TS parsing not yet fully implemented",
+            repository_id=repository_id,
+            skipped_count=skipped_non_python,
+        )
     publish_progress(repository_id, "processing", f"✓ Parsed {len(modules)} Python modules")
     # 5. Build Graph in repository
     try:

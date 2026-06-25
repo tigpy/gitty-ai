@@ -1,7 +1,23 @@
 from ...domain.interfaces.parser import IParser
 from typing import Dict, Any
 
+
 class TypescriptParser(IParser):
+    """
+    Stub TypeScript parser.  Returns an empty IR module so that the worker
+    pipeline does not crash when a .ts / .tsx file is encountered.
+    """
+
     def parse_file(self, file_content: str) -> Dict[str, Any]:
-        raise NotImplementedError("TypescriptParser is not implemented yet in Phase 2.")
+        # TODO: implement full TypeScript AST parsing (tree-sitter recommended)
+        return {
+            "file_path": "",
+            "language": "typescript",
+            "imports": [],
+            "classes": [],
+            "functions": [],
+            "calls": [],
+        }
+
+
 Class = TypescriptParser

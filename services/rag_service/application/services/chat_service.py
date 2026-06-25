@@ -128,8 +128,10 @@ class ChatService:
 
         start_time = time.perf_counter()
 
-        # 3. Retrieve code, documentation, and security chunks
-        retrieved_chunks: List[Chunk] = []
+        # 3. Retrieve code, documentation, and security chunks.
+        # Use (Chunk, score) pairs so the real Qdrant cosine score is preserved
+        # all the way to the citation output instead of being discarded.
+        retrieved_pairs: List[tuple] = []  # (Chunk, float score)
 
         if include_code or include_docs:
             chunks = self.search_service.retrieve_context(
@@ -141,7 +143,8 @@ class ChatService:
                 is_code = c.chunk_type in ("FUNCTION", "CLASS", "FILE")
                 is_doc = c.chunk_type == "DOCUMENTATION"
                 if (include_code and is_code) or (include_docs and is_doc):
-                    retrieved_chunks.append(c)
+                    score = c.metadata.get("_score", 0.0) if c.metadata else 0.0
+                    retrieved_pairs.append((c, score))
 
         if include_security:
             sec_results = self.search_service.search_security_findings(
@@ -151,20 +154,25 @@ class ChatService:
                 min_score=min_score
             )
             for res in sec_results:
-                retrieved_chunks.append(Chunk(
+                chunk = Chunk(
                     id=str(uuid.uuid4()),
                     text=res.snippet,
                     chunk_type="SECURITY_FINDING",
                     metadata={
                         "file_path": res.file_path,
                         "symbol_name": res.symbol_name,
-                        "chunk_type": "SECURITY_FINDING"
+                        "chunk_type": "SECURITY_FINDING",
+                        "_score": res.score,
                     },
                     content_hash="",
                     version=1
-                ))
+                )
+                retrieved_pairs.append((chunk, res.score))
 
-        retrieved_chunks = retrieved_chunks[:limit]
+        # Sort by score descending, cap to limit
+        retrieved_pairs.sort(key=lambda x: x[1], reverse=True)
+        retrieved_pairs = retrieved_pairs[:limit]
+        retrieved_chunks = [pair[0] for pair in retrieved_pairs]
 
         if self.publisher:
             try:
@@ -194,17 +202,17 @@ class ChatService:
 
         latency_ms = int((time.perf_counter() - start_time) * 1000)
 
-        # 6. Map retrieved chunks to citations DTO
+        # 6. Map retrieved chunks to citations DTO using real similarity scores
         citations = []
-        for c in retrieved_chunks:
-            meta = c.metadata or {}
+        for chunk, score in retrieved_pairs:
+            meta = chunk.metadata or {}
             citations.append(RetrievedChunk(
-                score=0.99,
+                score=round(score, 4),
                 file_path=meta.get("file_path", "unknown"),
                 symbol_name=meta.get("symbol_name"),
-                start_line=c.start_line,
-                end_line=c.end_line,
-                chunk_type=c.chunk_type
+                start_line=chunk.start_line,
+                end_line=chunk.end_line,
+                chunk_type=chunk.chunk_type
             ))
 
         # 7. Create metadata dict
