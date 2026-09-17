@@ -1,22 +1,28 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { TopNav, type NavTab } from '../components/nav/TopNav';
 import { RepositorySidebar } from '../components/sidebar/RepositorySidebar';
 import { GraphCanvas, type GraphCanvasRef } from '../components/graph/GraphCanvas';
 import { GraphToolbar } from '../components/graph/GraphToolbar';
+import { NodeInspector } from '../components/graph/NodeInspector';
 import { ChatPanel } from '../components/chat/ChatPanel';
+import { TelemetryBar } from '../components/common/TelemetryBar';
+import { AuthModal } from '../components/auth/AuthModal';
 import { api } from '../services/api';
-import type { Repository, GraphNode, GraphEdge, NodeDetails } from '../types';
-import { 
-  FileText, 
-  ShieldAlert, 
-  X,
-  Plus
-} from 'lucide-react';
+import type { Repository, GraphNode, GraphEdge, NodeDetails, User } from '../types';
+import { Activity, AlertTriangle } from 'lucide-react';
 
 export const Dashboard: React.FC = () => {
   const [selectedRepo, setSelectedRepo] = useState<Repository | null>(null);
   const [repos, setRepos] = useState<Repository[]>([]);
   const [loadingRepos, setLoadingRepos] = useState(true);
   
+  // Navigation tabs
+  const [activeTab, setActiveTab] = useState<NavTab>('GRAPH');
+
+  // User & Auth State
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+
   // Active Analysis State
   const [analyzing, setAnalyzing] = useState(false);
   const [progressLogs, setProgressLogs] = useState<string[]>([]);
@@ -32,6 +38,7 @@ export const Dashboard: React.FC = () => {
   const [nodeDetails, setNodeDetails] = useState<NodeDetails | null>(null);
   const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
   const [loadingGraph, setLoadingGraph] = useState(false);
+  const [currentZoom, setCurrentZoom] = useState(1);
   const graphCanvasRef = useRef<GraphCanvasRef | null>(null);
 
   // Overlay Toggles
@@ -42,14 +49,51 @@ export const Dashboard: React.FC = () => {
     callGraph: false
   });
 
+  // Check user authentication on mount
+  useEffect(() => {
+    if (api.getToken()) {
+      api.getMe()
+        .then(setUser)
+        .catch(() => {
+          api.clearToken();
+          setUser(null);
+        });
+    }
+  }, []);
+
+  const handleAuthSuccess = async (authenticatedUser: User) => {
+    setUser(authenticatedUser);
+    try {
+      const refreshed = await api.getRepositories();
+      setRepos(refreshed);
+      if (refreshed.length > 0 && !selectedRepo) {
+        setSelectedRepo(refreshed[0]);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleLogout = async () => {
+    api.clearToken();
+    setUser(null);
+    try {
+      const refreshed = await api.getRepositories();
+      setRepos(refreshed);
+      onSelectRepo(refreshed[0] || null);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   // Load repositories on mount
   useEffect(() => {
     setLoadingRepos(true);
     api.getRepositories()
       .then((data) => {
         setRepos(data);
-        if (data.length > 0 && !selectedRepo) {
-          setSelectedRepo(data[0]);
+        if (data.length > 0) {
+          setSelectedRepo(prev => prev || data[0]);
         }
       })
       .catch(console.error)
@@ -78,16 +122,52 @@ export const Dashboard: React.FC = () => {
       .finally(() => setLoadingGraph(false));
   }, [selectedRepo]);
 
+  const handleTabSelect = (tab: NavTab) => {
+    setActiveTab(tab);
+    if (tab === 'SECURITY') {
+      setOverlays(prev => ({ ...prev, security: true }));
+    } else if (tab === 'ARCHITECTURE') {
+      setOverlays(prev => ({ ...prev, smells: true, callGraph: true }));
+    }
+  };
+
+  const onSelectRepo = (repo: Repository | null) => {
+    setSelectedRepo(repo);
+  };
+
+  const handleDeleteRepo = async (repoId: string, name: string) => {
+    if (confirm(`Purge repository ${name} from system index?`)) {
+      try {
+        await api.deleteRepository(repoId);
+        const refreshed = await api.getRepositories();
+        setRepos(refreshed);
+        if (selectedRepo?.id === repoId) {
+          setSelectedRepo(refreshed[0] || null);
+        }
+      } catch (err) {
+        console.error('Delete repository failed:', err);
+        alert('Failed to delete repository');
+      }
+    }
+  };
+
   const handleStartAnalyze = async (url: string) => {
+    // Prevent duplicate analysis requests
+    if (analyzing) return;
+
+    if (!user && !api.getToken()) {
+      setIsAuthOpen(true);
+      return;
+    }
+
     const rawName = url.replace(/\/$/, '').split('/').pop() || 'Repository';
     const cleanRepoName = rawName.replace('.git', '');
     
     setAnalyzingRepoName(cleanRepoName);
     setAnalyzing(true);
     setAnalysisError(null);
-    setProgressLogs(['Queueing analysis task...']);
+    setProgressLogs(['Queuing analysis pipeline task...']);
 
-    // Clear stale state if we are re-indexing the currently selected repository
     if (selectedRepo && selectedRepo.name === cleanRepoName) {
       setSelectedRepo(null);
     }
@@ -96,9 +176,8 @@ export const Dashboard: React.FC = () => {
       const res = await api.analyzeRepository(url);
       const repoId = res.repository_id;
       
-      setProgressLogs(prev => [...prev, 'Analysis task queued successfully. Connecting live stream...']);
+      setProgressLogs(prev => [...prev, 'Pipeline task queued. Stream connecting...']);
 
-      // Setup Server-Sent Events (SSE) with token auth
       const eventSource = new EventSource(api.getProgressUrl(repoId));
       
       eventSource.onmessage = (event) => {
@@ -111,7 +190,6 @@ export const Dashboard: React.FC = () => {
             setAnalyzing(false);
             setAnalysisError(null);
             
-            // Reload repositories and select the new one
             api.getRepositories()
               .then((dataList) => {
                 setRepos(dataList);
@@ -123,24 +201,29 @@ export const Dashboard: React.FC = () => {
               .catch(console.error);
           } else if (data.status === 'failed') {
             eventSource.close();
+            setAnalyzing(false);
             setAnalysisError(data.message || 'Analysis failed');
           }
         } catch (e) {
+          console.error('Failed to parse SSE event data:', e);
           eventSource.close();
-          setAnalysisError('Failed to parse live log data');
-          setProgressLogs(prev => [...prev, 'Failed to parse live log data']);
+          setAnalyzing(false);
+          setAnalysisError('Failed to parse analysis stream');
+          setProgressLogs(prev => [...prev, 'Failed to parse stream data']);
         }
       };
 
       eventSource.onerror = () => {
         eventSource.close();
-        setAnalysisError('Error: Event stream disconnected');
-        setProgressLogs(prev => [...prev, 'Error: Event stream disconnected']);
+        setAnalyzing(false);
+        setAnalysisError('Event stream disconnected');
+        setProgressLogs(prev => [...prev, 'Error: Telemetry stream disconnected']);
       };
 
     } catch (err: any) {
-      setAnalysisError(err.message || 'Failed to start analysis');
-      setProgressLogs(prev => [...prev, `Error: ${err.message || 'Failed to start analysis'}`]);
+      setAnalyzing(false);
+      setAnalysisError(err.message || 'Failed to initialize analysis pipeline');
+      setProgressLogs(prev => [...prev, `Error: ${err.message || 'Pipeline failed'}`]);
     }
   };
 
@@ -182,7 +265,6 @@ export const Dashboard: React.FC = () => {
     }
   };
 
-  // Traversal Call graph overlay loader
   const handleTriggerCallGraph = async () => {
     if (!selectedNode || !selectedRepo) return;
 
@@ -232,277 +314,232 @@ export const Dashboard: React.FC = () => {
     }
   };
 
-  return (
-    <div className="app-container">
-      <style>{`
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-        @keyframes pulse {
-          0%, 100% { opacity: 0.3; }
-          50% { opacity: 1; }
-        }
-      `}</style>
+  const filesCount = nodes.filter(n => n.node_type === 'FILE').length;
 
-      {/* Sidebar selection */}
-      <RepositorySidebar
+  return (
+    <div className="app-shell">
+      {/* Top Technical Console Navigation */}
+      <TopNav
+        activeTab={activeTab}
+        onSelectTab={handleTabSelect}
         selectedRepo={selectedRepo}
-        onSelectRepo={setSelectedRepo}
-        nodes={nodes}
-        onSelectNode={handleSelectNode}
-        overlays={overlays}
-        onToggleOverlay={handleToggleOverlay}
-        repos={repos}
-        setRepos={setRepos}
-        loadingRepos={loadingRepos}
-        analyzing={analyzing}
-        onStartAnalyze={handleStartAnalyze}
+        user={user}
+        onOpenAuth={() => setIsAuthOpen(true)}
+        onLogout={handleLogout}
+        systemStatus="ONLINE"
       />
 
-      {/* Main Graph Canvas Area */}
-      <div className="glass-panel" style={{ position: 'relative', height: '100%', overflow: 'hidden' }}>
-        {analyzing ? (
-          <div style={{
-            position: 'absolute',
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            width: '85%',
-            maxWidth: '500px',
-            background: 'rgba(10, 11, 18, 0.95)',
-            border: '1px solid rgba(129, 140, 248, 0.25)',
-            borderRadius: '16px',
-            padding: '30px',
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.6)',
-            color: '#ffffff',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '20px'
-          }}>
-            <div style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '15px' }}>
-              <h2 style={{ 
-                margin: 0, 
-                fontSize: '1.25rem', 
-                fontFamily: 'Outfit', 
-                fontWeight: 700, 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: '10px',
-                color: analysisError ? '#ef4444' : '#ffffff'
-              }}>
-                {analysisError ? (
-                  <span style={{ color: '#ef4444', fontSize: '1.25rem' }}>✕</span>
-                ) : (
-                  <span style={{ 
-                    width: '18px', 
-                    height: '18px', 
-                    border: '2px solid #818cf8', 
-                    borderTopColor: 'transparent', 
-                    borderRadius: '50%', 
-                    display: 'inline-block', 
-                    animation: 'spin 1s linear infinite' 
-                  }} />
-                )}
-                {analysisError ? 'Analysis Failed' : `Analyzing ${analyzingRepoName}...`}
-              </h2>
-              <p style={{ margin: '6px 0 0 0', fontSize: '0.8rem', color: analysisError ? 'rgba(239, 68, 68, 0.85)' : 'rgba(255,255,255,0.45)' }}>
-                {analysisError ? analysisError : 'Please wait while Gitty parses and indexes the codebase.'}
-              </p>
-            </div>
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '10px',
-              fontFamily: 'monospace',
-              fontSize: '0.85rem',
-              maxHeight: '260px',
-              overflowY: 'auto',
-              paddingRight: '6px'
-            }}>
-              {progressLogs.map((log, idx) => {
-                const isCheck = log.startsWith('✓');
-                const isFailed = log.toLowerCase().includes('failed') || log.startsWith('Error');
-                return (
-                  <div key={idx} style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: '8px',
-                    color: isFailed ? '#ef4444' : (isCheck ? '#34d399' : 'rgba(255,255,255,0.85)')
-                  }}>
-                    {isCheck ? (
-                      <span style={{ color: '#34d399', fontWeight: 'bold' }}>✓</span>
-                    ) : (
-                      isFailed ? (
-                        <span style={{ color: '#ef4444', fontWeight: 'bold' }}>✗</span>
-                      ) : (
-                        <span style={{ 
-                          width: '5px', 
-                          height: '5px', 
-                          borderRadius: '50%', 
-                          background: '#818cf8', 
-                          display: 'inline-block',
-                          animation: 'pulse 1.5s infinite'
-                        }} />
-                      )
-                    )}
-                    <span>{isCheck ? log.substring(2) : log}</span>
-                  </div>
-                );
-              })}
-            </div>
-            {analysisError && (
-              <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-                <button
-                  onClick={() => {
-                    setAnalyzing(false);
-                    setAnalysisError(null);
-                  }}
-                  style={{
-                    background: '#ef4444',
-                    color: '#ffffff',
-                    border: 'none',
-                    borderRadius: '8px',
-                    padding: '8px 16px',
-                    cursor: 'pointer',
-                    fontWeight: 600,
-                    fontSize: '0.85rem'
-                  }}
-                >
-                  Dismiss
-                </button>
-              </div>
-            )}
-          </div>
-        ) : loadingGraph ? (
-          <div style={{
-            position: 'absolute',
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            fontSize: '1rem',
-            color: 'rgba(255,255,255,0.6)'
-          }}>
-            Loading visual graph...
-          </div>
-        ) : (
-          <GraphCanvas
-            ref={graphCanvasRef}
-            nodes={nodes}
-            edges={edges}
-            selectedNode={selectedNode}
-            onSelectNode={handleSelectNode}
-            onExpandNode={handleExpandNode}
-            overlays={overlays}
-            highlightedNodeId={highlightedNodeId}
-          />
-        )}
+      {/* Auth Modal for Login/Signup */}
+      <AuthModal
+        isOpen={isAuthOpen}
+        onClose={() => setIsAuthOpen(false)}
+        onAuthSuccess={handleAuthSuccess}
+      />
 
-        <GraphToolbar
-          onZoomIn={() => graphCanvasRef.current?.zoomIn()}
-          onZoomOut={() => graphCanvasRef.current?.zoomOut()}
-          onReset={() => graphCanvasRef.current?.resetView()}
-          nodesCount={nodes.length}
-          edgesCount={edges.length}
+      {/* Main Console Body: 3-Column Layout */}
+      <main className="console-body">
+        {/* Left Explorer & Index Column */}
+        <RepositorySidebar
+          selectedRepo={selectedRepo}
+          onSelectRepo={onSelectRepo}
+          nodes={nodes}
+          onSelectNode={handleSelectNode}
+          overlays={overlays}
+          onToggleOverlay={handleToggleOverlay}
+          repos={repos}
+          setRepos={setRepos}
+          loadingRepos={loadingRepos}
+          analyzing={analyzing}
+          onStartAnalyze={handleStartAnalyze}
+          onDeleteRepo={handleDeleteRepo}
         />
 
-        {/* Node Details Overlay Panel Card */}
-        {nodeDetails && (
-          <div className="glass-panel" style={{
-            position: 'absolute',
-            top: '20px',
-            left: '20px',
-            width: '320px',
-            maxHeight: '350px',
-            overflowY: 'auto',
-            padding: '16px',
-            zIndex: 10,
-            background: 'rgba(11, 12, 16, 0.85)',
-            border: '1px solid rgba(255, 255, 255, 0.1)'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-              <FileText size={16} style={{ color: '#818cf8' }} />
-              <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600, fontFamily: 'Outfit' }}>{nodeDetails.name}</h3>
-              <button 
-                onClick={() => handleSelectNode(null)} 
-                style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', padding: 0 }}
-              >
-                <X size={14} />
-              </button>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.8rem', color: 'rgba(255,255,255,0.7)' }}>
-              <div>Type: <strong style={{ color: '#ffffff' }}>{nodeDetails.type}</strong></div>
-              {nodeDetails.file_path && (
-                <div style={{ wordBreak: 'break-all' }}>Path: <strong style={{ color: '#ffffff' }}>{nodeDetails.file_path}</strong></div>
-              )}
-              {nodeDetails.start_line !== undefined && (
-                <div>Lines: <strong style={{ color: '#ffffff' }}>{nodeDetails.start_line}-{nodeDetails.end_line}</strong></div>
-              )}
-
-              {/* Status Indicator Badges */}
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
-                {nodeDetails.dead_code && (
-                  <span className="badge badge-dead">Dead Code</span>
-                )}
-                {nodeDetails.architecture_smell && (
-                  <span className="badge badge-smell">Architecture Smell</span>
-                )}
+        {/* Center Graph Workspace */}
+        <section 
+          className="console-panel"
+          style={{
+            position: 'relative',
+            height: '100%',
+            overflow: 'hidden',
+            background: 'var(--bg-ground)'
+          }}
+        >
+          {(analyzing || analysisError) ? (
+            /* Analysis Pipeline Overlay */
+            <div style={{
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              width: '90%',
+              maxWidth: '520px',
+              background: 'var(--bg-panel)',
+              border: '1px solid var(--hairline)',
+              borderRadius: '8px',
+              padding: '24px',
+              boxShadow: '0 16px 48px rgba(0, 0, 0, 0.8)',
+              zIndex: 30,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '16px'
+            }}>
+              <div style={{ borderBottom: '1px solid var(--hairline)', paddingBottom: '12px' }}>
+                <div className="tech-label" style={{ marginBottom: '4px' }}>
+                  {analysisError ? 'ANALYSIS PIPELINE FAILURE' : 'REPOSITORY ANALYSIS IN PROGRESS'}
+                </div>
+                <h2 style={{
+                  margin: 0,
+                  fontSize: '15px',
+                  fontFamily: 'var(--font-mono)',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  color: analysisError ? 'var(--status-red)' : 'var(--ink-primary)'
+                }}>
+                  {analysisError ? (
+                    <AlertTriangle size={16} style={{ color: 'var(--status-red)' }} />
+                  ) : (
+                    <span 
+                      style={{
+                        width: '14px',
+                        height: '14px',
+                        border: '2px solid var(--accent-amber)',
+                        borderTopColor: 'transparent',
+                        borderRadius: '50%',
+                        display: 'inline-block',
+                        animation: 'spin 0.8s linear infinite'
+                      }}
+                    />
+                  )}
+                  {analysisError ? 'Analysis Pipeline Halted' : `Indexing: ${analyzingRepoName}`}
+                </h2>
+                <p style={{ margin: '6px 0 0 0', fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--ink-muted)' }}>
+                  {analysisError ? analysisError : 'Parsing symbols, ast call relationships, and security heuristics...'}
+                </p>
               </div>
 
-              {/* Security Vulnerabilities */}
-              {nodeDetails.security_findings.length > 0 && (
-                <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <span style={{ fontSize: '0.72rem', color: '#ef4444', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <ShieldAlert size={12} /> SECURITY ISSUES DETECTED
-                  </span>
-                  {nodeDetails.security_findings.map((fnd) => (
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+                fontFamily: 'var(--font-mono)',
+                fontSize: '11px',
+                maxHeight: '220px',
+                overflowY: 'auto',
+                background: 'var(--bg-ground)',
+                border: '1px solid var(--hairline)',
+                padding: '10px 12px',
+                borderRadius: '6px'
+              }}>
+                {progressLogs.map((log, idx) => {
+                  const isCheck = log.startsWith('✓');
+                  const isFailed = log.toLowerCase().includes('failed') || log.startsWith('Error');
+                  return (
                     <div 
-                      key={fnd.id} 
-                      style={{ 
-                        background: 'rgba(239, 68, 68, 0.05)', 
-                        border: '1px solid rgba(239, 68, 68, 0.2)', 
-                        borderRadius: '6px', 
-                        padding: '6px 8px',
-                        fontSize: '0.75rem',
-                        lineHeight: '1.3'
+                      key={idx}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        color: isFailed ? 'var(--status-red)' : (isCheck ? 'var(--status-green)' : 'var(--ink-secondary)')
                       }}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-                        <span className={`badge badge-${fnd.severity.toLowerCase()}`} style={{ fontSize: '0.6rem', padding: '1px 3px' }}>{fnd.severity}</span>
-                        <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.7rem' }}>Line: {fnd.line_number}</span>
-                      </div>
-                      <div style={{ color: 'rgba(255,255,255,0.8)' }}>{fnd.description}</div>
+                      <span>{isCheck ? '✓' : isFailed ? '✗' : '›'}</span>
+                      <span>{isCheck ? log.substring(2) : log}</span>
                     </div>
-                  ))}
+                  );
+                })}
+              </div>
+
+              {analysisError && (
+                <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '6px' }}>
+                  <button
+                    onClick={() => {
+                      setAnalysisError(null);
+                    }}
+                    className="console-btn"
+                    style={{ borderColor: 'var(--status-red)', color: 'var(--status-red)' }}
+                  >
+                    DISMISS ERROR
+                  </button>
                 </div>
               )}
-
-              {/* Call graph traversal action */}
-              {nodeDetails.type === 'FUNCTION' && (
-                <button 
-                  onClick={handleTriggerCallGraph}
-                  className="glass-btn"
-                  style={{ marginTop: '10px', fontSize: '0.75rem', padding: '6px 12px', justifyContent: 'center' }}
-                >
-                  <Plus size={12} /> Highlight Call Graph
-                </button>
-              )}
             </div>
-          </div>
-        )}
-      </div>
+          ) : loadingGraph ? (
+            /* Visual Graph Loading State */
+            <div style={{
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              fontFamily: 'var(--font-mono)',
+              fontSize: '12px',
+              color: 'var(--ink-muted)'
+            }}>
+              <Activity size={16} style={{ color: 'var(--accent-amber)', animation: 'spin 1.5s linear infinite' }} />
+              <span>COMPUTING GRAPH MATRIX VIEWPORT...</span>
+            </div>
+          ) : (
+            /* Stable Finite Force-Directed Canvas */
+            <GraphCanvas
+              ref={graphCanvasRef}
+              nodes={nodes}
+              edges={edges}
+              selectedNode={selectedNode}
+              onSelectNode={handleSelectNode}
+              onExpandNode={handleExpandNode}
+              overlays={overlays}
+              highlightedNodeId={highlightedNodeId}
+              onZoomChange={setCurrentZoom}
+            />
+          )}
 
-      {/* Right Assistant Panel */}
-      <ChatPanel
-        selectedRepoId={selectedRepo?.id}
-        selectedNode={selectedNode}
-        onCitationClick={handleCitationClick}
+          {/* Node Inspector HUD Overlay */}
+          {selectedNode && (
+            <NodeInspector
+              node={selectedNode}
+              details={nodeDetails}
+              edges={edges}
+              onClose={() => handleSelectNode(null)}
+              onTriggerCallGraph={handleTriggerCallGraph}
+            />
+          )}
+
+          {/* Bottom Viewport Toolbar */}
+          <GraphToolbar
+            onZoomIn={() => graphCanvasRef.current?.zoomIn()}
+            onZoomOut={() => graphCanvasRef.current?.zoomOut()}
+            onReset={() => graphCanvasRef.current?.resetView()}
+            nodesCount={nodes.length}
+            edgesCount={edges.length}
+            status={loadingGraph ? 'COMPUTING' : (nodes.length > 0 ? 'STABLE' : 'READY')}
+          />
+        </section>
+
+        {/* Right Assistant Column: GITTY CORE */}
+        <ChatPanel
+          selectedRepoId={selectedRepo?.id}
+          selectedNode={selectedNode}
+          onCitationClick={handleCitationClick}
+          analyzing={analyzing}
+        />
+      </main>
+
+      {/* Bottom Telemetry Status Strip */}
+      <TelemetryBar
+        nodesCount={nodes.length}
+        edgesCount={edges.length}
+        filesCount={filesCount}
+        status={loadingGraph ? 'COMPUTING' : (nodes.length > 0 ? 'STABLE' : 'IDLE')}
+        zoomLevel={currentZoom}
+        repoName={selectedRepo?.name}
       />
     </div>
   );
 };
+
 export default Dashboard;

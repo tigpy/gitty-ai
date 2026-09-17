@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useImperativeHandle, forwardRef } from 'react';
+import React, { useEffect, useRef, useState, useImperativeHandle, forwardRef, useCallback } from 'react';
 import type { GraphNode, GraphEdge } from '../../types';
 
 export interface GraphCanvasRef {
@@ -20,6 +20,7 @@ interface GraphCanvasProps {
     callGraph: boolean;
   };
   highlightedNodeId?: string | null;
+  onZoomChange?: (zoom: number) => void;
 }
 
 interface SimNode extends GraphNode {
@@ -31,6 +32,156 @@ interface SimNode extends GraphNode {
   fy?: number;
 }
 
+const getNodeRadius = (type: string): number => {
+  switch (type) {
+    case 'REPOSITORY': return 25;
+    case 'FILE': return 12;
+    case 'CLASS': return 8;
+    case 'FUNCTION': return 6;
+    case 'IMPORT': return 5;
+    case 'CALL': return 4;
+    case 'SECURITY_FINDING': return 9;
+    default: return 6;
+  }
+};
+
+const getNodeColor = (type: string): string => {
+  switch (type) {
+    case 'REPOSITORY': return '#4f46e5'; // Deep Indigo
+    case 'FILE': return '#2563eb';       // Blue
+    case 'CLASS': return '#0891b2';      // Cyan
+    case 'FUNCTION': return '#94a3b8';   // Technical Slate (replaces green to reserve green strictly for system state)
+    case 'IMPORT': return '#8b5cf6';     // Purple
+    case 'CALL': return '#f59e0b';       // Amber
+    case 'SECURITY_FINDING': return '#dc2626'; // Red
+    default: return '#6b7280';
+  }
+};
+
+const computeFitView = (
+  nodes: SimNode[],
+  canvasWidth: number,
+  canvasHeight: number,
+  padding: number = 60
+): { zoom: number; pan: { x: number; y: number } } => {
+  if (nodes.length === 0 || canvasWidth <= 0 || canvasHeight <= 0) {
+    return { zoom: 1, pan: { x: canvasWidth / 2, y: canvasHeight / 2 } };
+  }
+
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+
+  for (const node of nodes) {
+    const r = getNodeRadius(node.node_type) + 24;
+    if (node.x - r < minX) minX = node.x - r;
+    if (node.x + r > maxX) maxX = node.x + r;
+    if (node.y - r < minY) minY = node.y - r;
+    if (node.y + r > maxY) maxY = node.y + r;
+  }
+
+  const graphWidth = Math.max(maxX - minX, 100);
+  const graphHeight = Math.max(maxY - minY, 100);
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
+
+  const availWidth = Math.max(canvasWidth - padding * 2, 100);
+  const availHeight = Math.max(canvasHeight - padding * 2, 100);
+
+  const zoomX = availWidth / graphWidth;
+  const zoomY = availHeight / graphHeight;
+  const fitZoom = Math.max(0.15, Math.min(Math.min(zoomX, zoomY), 1.25));
+
+  const panX = canvasWidth / 2 - fitZoom * centerX;
+  const panY = canvasHeight / 2 - fitZoom * centerY;
+
+  return { zoom: fitZoom, pan: { x: panX, y: panY } };
+};
+
+type SimStage = 'INITIALIZING' | 'WARMUP' | 'SETTLING' | 'STABLE';
+
+const warmupSimulation = (nodes: SimNode[], edges: GraphEdge[], iterations: number = 90) => {
+  if (nodes.length === 0) return;
+
+  const kLink = 0.04;
+  const dLink = 140;
+  const kRepulsion = 1500;
+  const kGravity = 0.012;
+  const friction = 0.85;
+
+  const nodeMap = new Map<string, SimNode>();
+  for (let i = 0; i < nodes.length; i++) {
+    nodeMap.set(nodes[i].id, nodes[i]);
+  }
+
+  let alpha = 1.0;
+  const alphaDecay = Math.pow(0.15 / 1.0, 1 / iterations);
+
+  for (let step = 0; step < iterations; step++) {
+    alpha *= alphaDecay;
+
+    // 1. Repulsion force between all node pairs
+    for (let i = 0; i < nodes.length; i++) {
+      const n1 = nodes[i];
+      for (let j = i + 1; j < nodes.length; j++) {
+        const n2 = nodes[j];
+        const dx = n2.x - n1.x;
+        const dy = n2.y - n1.y;
+        const distSq = dx * dx + dy * dy + 0.1;
+        const dist = Math.sqrt(distSq);
+
+        if (dist < 400) {
+          const force = (kRepulsion / distSq) * alpha;
+          const fx = (dx / dist) * force;
+          const fy = (dy / dist) * force;
+          n1.vx -= fx;
+          n1.vy -= fy;
+          n2.vx += fx;
+          n2.vy += fy;
+        }
+      }
+    }
+
+    // 2. Link Spring forces
+    for (let i = 0; i < edges.length; i++) {
+      const edge = edges[i];
+      const sNode = nodeMap.get(edge.source);
+      const tNode = nodeMap.get(edge.target);
+      if (sNode && tNode) {
+        const dx = tNode.x - sNode.x;
+        const dy = tNode.y - sNode.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) + 0.1;
+        const displacement = dist - dLink;
+        const force = displacement * kLink * alpha;
+        const fx = (dx / dist) * force;
+        const fy = (dy / dist) * force;
+        sNode.vx += fx;
+        sNode.vy += fy;
+        tNode.vx -= fx;
+        tNode.vy -= fy;
+      }
+    }
+
+    // 3. Gravity towards (0, 0) and damping
+    for (let i = 0; i < nodes.length; i++) {
+      const node = nodes[i];
+      node.vx += (0 - node.x) * kGravity * alpha;
+      node.vy += (0 - node.y) * kGravity * alpha;
+      node.x += node.vx;
+      node.y += node.vy;
+      node.vx *= friction;
+      node.vy *= friction;
+    }
+  }
+
+  // Zero out velocities after warmup
+  for (let i = 0; i < nodes.length; i++) {
+    nodes[i].vx = 0;
+    nodes[i].vy = 0;
+  }
+};
+
 export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({
   nodes,
   edges,
@@ -39,168 +190,287 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({
   onExpandNode,
   overlays,
   highlightedNodeId,
+  onZoomChange,
 }, ref) => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  
-  // Transform nodes to include simulation coordinates
+
   const [simNodes, setSimNodes] = useState<SimNode[]>([]);
-  
-  // Viewport states for zoom & pan
+  const simNodesRef = useRef<SimNode[]>([]);
+  simNodesRef.current = simNodes;
+
+  const simStageRef = useRef<SimStage>('INITIALIZING');
+  const alphaRef = useRef<number>(1.0);
+  const nodeMapRef = useRef<Map<string, SimNode>>(new Map());
+
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
 
-  useImperativeHandle(ref, () => ({
-    zoomIn: () => {
-      setZoom((z) => Math.min(z * 1.25, 4));
-    },
-    zoomOut: () => {
-      setZoom((z) => Math.max(z / 1.25, 0.15));
-    },
-    resetView: () => {
-      setZoom(1);
-      if (canvasRef.current) {
-        setPan({ x: canvasRef.current.width / 2, y: canvasRef.current.height / 2 });
-      } else {
-        setPan({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
-      }
-    }
-  }));
+  useEffect(() => {
+    onZoomChange?.(zoom);
+  }, [zoom, onZoomChange]);
+
+  const hasUserInteractedRef = useRef(false);
+
   const isDraggingViewportRef = useRef(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
-  
-  // Node dragging states
+
   const draggedNodeRef = useRef<SimNode | null>(null);
-  
-  // Double click timer
   const lastClickRef = useRef<{ time: number; nodeId: string }>({ time: 0, nodeId: '' });
 
-  // Sync incoming nodes with coordinates
+  const fitToGraph = useCallback((nodesToFit = simNodesRef.current) => {
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    const width = canvas?.width || container?.clientWidth || 0;
+    const height = canvas?.height || container?.clientHeight || 0;
+
+    if (nodesToFit.length === 0 || width <= 0 || height <= 0) return;
+
+    const { zoom: fitZoom, pan: fitPan } = computeFitView(nodesToFit, width, height);
+    setZoom(fitZoom);
+    setPan(fitPan);
+  }, []);
+
+  useImperativeHandle(ref, () => ({
+    zoomIn: () => {
+      hasUserInteractedRef.current = true;
+      const canvas = canvasRef.current;
+      const cx = canvas ? canvas.width / 2 : window.innerWidth / 2;
+      const cy = canvas ? canvas.height / 2 : window.innerHeight / 2;
+      setZoom((prevZoom) => {
+        const newZoom = Math.min(prevZoom * 1.25, 4);
+        const scale = newZoom / prevZoom;
+        setPan((prevPan) => ({
+          x: cx - (cx - prevPan.x) * scale,
+          y: cy - (cy - prevPan.y) * scale,
+        }));
+        return newZoom;
+      });
+    },
+    zoomOut: () => {
+      hasUserInteractedRef.current = true;
+      const canvas = canvasRef.current;
+      const cx = canvas ? canvas.width / 2 : window.innerWidth / 2;
+      const cy = canvas ? canvas.height / 2 : window.innerHeight / 2;
+      setZoom((prevZoom) => {
+        const newZoom = Math.max(prevZoom / 1.25, 0.15);
+        const scale = newZoom / prevZoom;
+        setPan((prevPan) => ({
+          x: cx - (cx - prevPan.x) * scale,
+          y: cy - (cy - prevPan.y) * scale,
+        }));
+        return newZoom;
+      });
+    },
+    resetView: () => {
+      hasUserInteractedRef.current = false;
+      fitToGraph(simNodesRef.current);
+    }
+  }), [fitToGraph]);
+
+  // Sync incoming nodes, initialize coordinates at (0, 0), and auto-fit
   useEffect(() => {
-    setSimNodes((prev) => {
-      const prevMap = new Map(prev.map(n => [n.id, n]));
-      return nodes.map((node) => {
-        const existing = prevMap.get(node.id);
-        const angle = Math.random() * Math.PI * 2;
-        const radius = 100 + Math.random() * 200;
+    if (nodes.length === 0) {
+      setSimNodes([]);
+      simNodesRef.current = [];
+      nodeMapRef.current.clear();
+      simStageRef.current = 'STABLE';
+      return;
+    }
+
+    const prevMap = new Map(simNodesRef.current.map((n) => [n.id, n]));
+    const existingCount = nodes.filter((n) => prevMap.has(n.id)).length;
+    const isNewGraph = existingCount < Math.min(nodes.length * 0.4, 4);
+
+    let nextSimNodes: SimNode[];
+
+    if (isNewGraph) {
+      simStageRef.current = 'INITIALIZING';
+      // Deterministic layout centered at world origin (0, 0)
+      const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+      nextSimNodes = nodes.map((node, i) => {
+        const r = 25 * Math.sqrt(i + 1);
+        const theta = i * goldenAngle;
         return {
           ...node,
-          x: existing ? existing.x : window.innerWidth / 2 + Math.cos(angle) * radius,
-          y: existing ? existing.y : window.innerHeight / 2 + Math.sin(angle) * radius,
-          vx: existing ? existing.vx : 0,
-          vy: existing ? existing.vy : 0
+          x: Math.cos(theta) * r,
+          y: Math.sin(theta) * r,
+          vx: 0,
+          vy: 0,
         };
       });
-    });
-  }, [nodes]);
 
-  // Center the graph initially
-  useEffect(() => {
-    if (simNodes.length > 0 && pan.x === 0 && pan.y === 0 && canvasRef.current) {
+      simStageRef.current = 'WARMUP';
+      // Synchronous physics warmup to converge positions immediately
+      warmupSimulation(nextSimNodes, edges, 90);
+
+      // Transition to SETTLING with small initial alpha for smooth visual convergence
+      simStageRef.current = 'SETTLING';
+      alphaRef.current = 0.2;
+
+      hasUserInteractedRef.current = false;
+      simNodesRef.current = nextSimNodes;
+      nodeMapRef.current = new Map(nextSimNodes.map(n => [n.id, n]));
+      setSimNodes(nextSimNodes);
+
       const canvas = canvasRef.current;
-      setPan({ x: canvas.width / 2, y: canvas.height / 2 });
+      const container = containerRef.current;
+      const width = canvas?.width || container?.clientWidth || 0;
+      const height = canvas?.height || container?.clientHeight || 0;
+
+      if (width > 0 && height > 0) {
+        const { zoom: fitZoom, pan: fitPan } = computeFitView(nextSimNodes, width, height);
+        setZoom(fitZoom);
+        setPan(fitPan);
+      }
+    } else {
+      // Incremental addition (e.g. node expansion)
+      nextSimNodes = nodes.map((node) => {
+        const existing = prevMap.get(node.id);
+        if (existing) {
+          return { ...node, x: existing.x, y: existing.y, vx: 0, vy: 0 };
+        }
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 60 + Math.random() * 120;
+        return {
+          ...node,
+          x: Math.cos(angle) * radius,
+          y: Math.sin(angle) * radius,
+          vx: 0,
+          vy: 0,
+        };
+      });
+      simNodesRef.current = nextSimNodes;
+      nodeMapRef.current = new Map(nextSimNodes.map(n => [n.id, n]));
+      setSimNodes(nextSimNodes);
+      alphaRef.current = 0.25;
+      simStageRef.current = 'SETTLING';
     }
-  }, [simNodes]);
+  }, [nodes, edges]);
 
   // Simulation physics loop
   useEffect(() => {
     let animationId: number;
-    
+
     const updatePhysics = () => {
       if (simNodes.length === 0) return;
 
-      const kLink = 0.04; // Spring strength
-      const dLink = 140;  // Target link distance
-      const kRepulsion = 1500; // Coulomb repulsion strength
-      const kGravity = 0.01;  // Pull towards center
-      const friction = 0.85;  // Velocity damping
+      if (simStageRef.current === 'SETTLING') {
+        const alpha = alphaRef.current;
+        if (alpha > 0.005) {
+          const kLink = 0.04;
+          const dLink = 140;
+          const kRepulsion = 1500;
+          const kGravity = 0.01;
+          const friction = 0.85;
 
-      // 1. Repulsion force between all node pairs
-      for (let i = 0; i < simNodes.length; i++) {
-        const n1 = simNodes[i];
-        for (let j = i + 1; j < simNodes.length; j++) {
-          const n2 = simNodes[j];
-          const dx = n2.x - n1.x;
-          const dy = n2.y - n1.y;
-          const distSq = dx * dx + dy * dy + 0.1;
-          const dist = Math.sqrt(distSq);
-          
-          if (dist < 400) {
-            // Coulomb's repulsion
-            const force = kRepulsion / distSq;
-            const fx = (dx / dist) * force;
-            const fy = (dy / dist) * force;
-            
-            n1.vx -= fx;
-            n1.vy -= fy;
-            n2.vx += fx;
-            n2.vy += fy;
+          // 1. Repulsion force between all node pairs
+          for (let i = 0; i < simNodes.length; i++) {
+            const n1 = simNodes[i];
+            for (let j = i + 1; j < simNodes.length; j++) {
+              const n2 = simNodes[j];
+              const dx = n2.x - n1.x;
+              const dy = n2.y - n1.y;
+              const distSq = dx * dx + dy * dy + 0.1;
+              const dist = Math.sqrt(distSq);
+
+              if (dist < 400) {
+                const force = (kRepulsion / distSq) * alpha;
+                const fx = (dx / dist) * force;
+                const fy = (dy / dist) * force;
+
+                n1.vx -= fx;
+                n1.vy -= fy;
+                n2.vx += fx;
+                n2.vy += fy;
+              }
+            }
+          }
+
+          const nodeMap = nodeMapRef.current;
+
+          // 2. Link Spring forces
+          for (let i = 0; i < edges.length; i++) {
+            const edge = edges[i];
+            const sNode = nodeMap.get(edge.source);
+            const tNode = nodeMap.get(edge.target);
+
+            if (sNode && tNode) {
+              const dx = tNode.x - sNode.x;
+              const dy = tNode.y - sNode.y;
+              const dist = Math.sqrt(dx * dx + dy * dy) + 0.1;
+
+              const displacement = dist - dLink;
+              const force = displacement * kLink * alpha;
+              const fx = (dx / dist) * force;
+              const fy = (dy / dist) * force;
+
+              sNode.vx += fx;
+              sNode.vy += fy;
+              tNode.vx -= fx;
+              tNode.vy -= fy;
+            }
+          }
+
+          // 3. Gravity towards world origin (0, 0)
+          for (let i = 0; i < simNodes.length; i++) {
+            const node = simNodes[i];
+            node.vx += (0 - node.x) * kGravity * alpha;
+            node.vy += (0 - node.y) * kGravity * alpha;
+          }
+
+          // 4. Update coordinates & apply damping
+          let maxV = 0;
+          for (let i = 0; i < simNodes.length; i++) {
+            const node = simNodes[i];
+            if (node === draggedNodeRef.current) {
+              node.vx = 0;
+              node.vy = 0;
+              continue;
+            }
+            node.x += node.vx;
+            node.y += node.vy;
+            node.vx *= friction;
+            node.vy *= friction;
+            const v = Math.abs(node.vx) + Math.abs(node.vy);
+            if (v > maxV) maxV = v;
+          }
+
+          // Cool down alpha
+          alphaRef.current *= 0.92;
+
+          // Settling condition: transition to STABLE
+          if (alphaRef.current <= 0.005 || maxV < 0.05) {
+            simStageRef.current = 'STABLE';
+            alphaRef.current = 0;
+            for (let i = 0; i < simNodes.length; i++) {
+              simNodes[i].vx = 0;
+              simNodes[i].vy = 0;
+            }
+          }
+        } else {
+          simStageRef.current = 'STABLE';
+          alphaRef.current = 0;
+          for (let i = 0; i < simNodes.length; i++) {
+            simNodes[i].vx = 0;
+            simNodes[i].vy = 0;
           }
         }
       }
 
-      // Build O(1) lookup map for fast edge access
-      const nodeMap = new Map<string, SimNode>();
-      for (let i = 0; i < simNodes.length; i++) {
-        nodeMap.set(simNodes[i].id, simNodes[i]);
-      }
-
-      // 2. Link Spring forces
-      edges.forEach((edge) => {
-        const sNode = nodeMap.get(edge.source);
-        const tNode = nodeMap.get(edge.target);
-        
-        if (sNode && tNode) {
-          const dx = tNode.x - sNode.x;
-          const dy = tNode.y - sNode.y;
-          const dist = Math.sqrt(dx * dx + dy * dy) + 0.1;
-          
-          // Spring Hooke's Law
-          const displacement = dist - dLink;
-          const force = displacement * kLink;
-          const fx = (dx / dist) * force;
-          const fy = (dy / dist) * force;
-          
-          sNode.vx += fx;
-          sNode.vy += fy;
-          tNode.vx -= fx;
-          tNode.vy -= fy;
-        }
-      });
-
-      // 3. Apply gravity towards viewport center
-      if (canvasRef.current) {
-        const cx = window.innerWidth / 2;
-        const cy = window.innerHeight / 2;
-        simNodes.forEach((node) => {
-          node.vx += (cx - node.x) * kGravity;
-          node.vy += (cy - node.y) * kGravity;
-        });
-      }
-
-      // 4. Update coordinates & apply damping
-      simNodes.forEach((node) => {
-        if (node === draggedNodeRef.current) {
-          node.vx = 0;
-          node.vy = 0;
-          return;
-        }
-        node.x += node.vx;
-        node.y += node.vy;
-        node.vx *= friction;
-        node.vy *= friction;
-      });
-
       // Render Graph on Canvas
-      renderGraph(nodeMap);
+      renderGraph();
 
       animationId = requestAnimationFrame(updatePhysics);
     };
 
-    const renderGraph = (nodeMap: Map<string, SimNode>) => {
+    const renderGraph = () => {
       const canvas = canvasRef.current;
       if (!canvas) return;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
+
+      const nodeMap = nodeMapRef.current;
 
       // Clear Screen
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -210,30 +480,53 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({
       ctx.translate(pan.x, pan.y);
       ctx.scale(zoom, zoom);
 
+      // Pre-compute connected nodes and edges for HUD highlighting
+      const connectedNodeIds = new Set<string>();
+      const connectedEdgeIndices = new Set<number>();
+      if (selectedNode) {
+        connectedNodeIds.add(selectedNode.id);
+        edges.forEach((edge, idx) => {
+          if (edge.source === selectedNode.id || edge.target === selectedNode.id) {
+            connectedNodeIds.add(edge.source);
+            connectedNodeIds.add(edge.target);
+            connectedEdgeIndices.add(idx);
+          }
+        });
+      }
+
       // Draw Edges
-      edges.forEach((edge) => {
+      edges.forEach((edge, idx) => {
         const sNode = nodeMap.get(edge.source);
         const tNode = nodeMap.get(edge.target);
         
         if (sNode && tNode) {
+          const isConnectedToSelected = selectedNode && connectedEdgeIndices.has(idx);
+
           ctx.beginPath();
           ctx.moveTo(sNode.x, sNode.y);
           ctx.lineTo(tNode.x, tNode.y);
           
-          // Call Graph Overlay highlights CALLS paths in green
           if (overlays.callGraph && (edge.relationship === 'CALLS' || edge.relationship === 'BELONGS_TO')) {
-            ctx.strokeStyle = 'rgba(16, 185, 129, 0.7)';
+            ctx.strokeStyle = 'rgba(61, 220, 151, 0.75)';
             ctx.lineWidth = 2.5;
+          } else if (selectedNode) {
+            if (isConnectedToSelected) {
+              ctx.strokeStyle = 'rgba(240, 164, 34, 0.85)';
+              ctx.lineWidth = 2;
+            } else {
+              ctx.strokeStyle = 'rgba(232, 235, 239, 0.04)';
+              ctx.lineWidth = 0.8;
+            }
           } else {
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+            ctx.strokeStyle = 'rgba(232, 235, 239, 0.09)';
             ctx.lineWidth = 1;
           }
           ctx.stroke();
 
-          // Draw dependency direction indicator arrow
+          // Dependency arrow
           const angle = Math.atan2(tNode.y - sNode.y, tNode.x - sNode.x);
-          const arrowLength = 6;
-          const arrowOffset = 22; // Draw arrow near node border
+          const arrowLength = 5;
+          const arrowOffset = 20;
           const arrowX = tNode.x - Math.cos(angle) * arrowOffset;
           const arrowY = tNode.y - Math.sin(angle) * arrowOffset;
           
@@ -241,7 +534,11 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({
           ctx.moveTo(arrowX, arrowY);
           ctx.lineTo(arrowX - arrowLength * Math.cos(angle - Math.PI / 6), arrowY - arrowLength * Math.sin(angle - Math.PI / 6));
           ctx.lineTo(arrowX - arrowLength * Math.cos(angle + Math.PI / 6), arrowY - arrowLength * Math.sin(angle + Math.PI / 6));
-          ctx.fillStyle = overlays.callGraph ? 'rgba(16, 185, 129, 0.7)' : 'rgba(255, 255, 255, 0.12)';
+          ctx.fillStyle = overlays.callGraph 
+            ? 'rgba(61, 220, 151, 0.75)' 
+            : isConnectedToSelected 
+              ? 'rgba(240, 164, 34, 0.85)' 
+              : 'rgba(232, 235, 239, 0.12)';
           ctx.fill();
         }
       });
@@ -251,7 +548,17 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({
         const radius = getNodeRadius(node.node_type);
         const color = getNodeColor(node.node_type);
 
+        const isSelected = selectedNode && selectedNode.id === node.id;
+        const isHighlighted = highlightedNodeId && highlightedNodeId === node.id;
+        const isConnectedNeighbor = selectedNode && connectedNodeIds.has(node.id);
+
         ctx.save();
+
+        // Subtle dimming of unconnected nodes when a target is focused
+        if (selectedNode && !isConnectedNeighbor) {
+          ctx.globalAlpha = 0.35;
+        }
+
         ctx.beginPath();
         ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
 
@@ -265,22 +572,24 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({
           ctx.stroke();
         }
 
-        // Selected Node Highlight
-        const isSelected = selectedNode && selectedNode.id === node.id;
-        const isHighlighted = highlightedNodeId && highlightedNodeId === node.id;
+        // Selected Node Highlight (Amber Glow)
         if (isSelected || isHighlighted) {
-          ctx.shadowColor = '#818cf8';
+          ctx.shadowColor = '#F0A422';
           ctx.shadowBlur = 18;
-          ctx.strokeStyle = '#a5b4fc';
+          ctx.strokeStyle = '#FFB400';
           ctx.lineWidth = 3;
+          ctx.stroke();
+        } else if (isConnectedNeighbor) {
+          ctx.strokeStyle = 'rgba(240, 164, 34, 0.6)';
+          ctx.lineWidth = 1.5;
           ctx.stroke();
         }
 
         // Dead Code overlay desaturated + dashed outline
         const isDeadCodeNode = overlays.deadCode && node.dead_code;
         if (isDeadCodeNode) {
-          ctx.fillStyle = '#1f2937';
-          ctx.strokeStyle = '#6b7280';
+          ctx.fillStyle = '#1D232D';
+          ctx.strokeStyle = '#6B7481';
           ctx.setLineDash([4, 4]);
           ctx.lineWidth = 1.5;
           ctx.stroke();
@@ -290,26 +599,35 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({
 
         // Architecture Smells orange highlight border
         if (overlays.smells && node.architecture_smell) {
-          ctx.strokeStyle = '#f97316';
-          ctx.lineWidth = 3.5;
+          ctx.strokeStyle = '#FF8A00';
+          ctx.lineWidth = 3;
           ctx.stroke();
         }
 
         ctx.fill();
         ctx.restore();
 
-        // Draw Node Text Labels
-        if (zoom > 0.45) {
-          ctx.font = isSelected ? 'bold 11px Inter' : '10px Inter';
-          ctx.fillStyle = isSelected ? '#ffffff' : 'rgba(255, 255, 255, 0.7)';
+        // Draw Node Text Labels:
+        // High zoom (zoom >= 0.45): show all
+        // Low zoom (zoom < 0.45): show only REPOSITORY and FILE (or if selected)
+        const shouldShowLabel = isSelected || isConnectedNeighbor || (zoom >= 0.45) || (node.node_type === 'REPOSITORY' || node.node_type === 'FILE');
+
+        if (shouldShowLabel) {
+          ctx.save();
+          if (selectedNode && !isConnectedNeighbor) {
+            ctx.globalAlpha = 0.3;
+          }
+          ctx.font = isSelected ? "bold 11px 'JetBrains Mono', monospace" : "10px 'JetBrains Mono', monospace";
+          ctx.fillStyle = isSelected ? '#FFB400' : isConnectedNeighbor ? '#E8EBEF' : 'rgba(232, 235, 239, 0.7)';
           ctx.textAlign = 'center';
-          ctx.fillText(node.label, node.x, node.y + radius + 14);
+          ctx.fillText(node.label, node.x, node.y + radius + 13);
           
           if (node.node_type === 'FILE' && node.security_score !== null && overlays.security) {
-            ctx.font = 'bold 9px Inter';
+            ctx.font = "bold 9px 'JetBrains Mono', monospace";
             ctx.fillStyle = '#ef4444';
             ctx.fillText(`Score: ${node.security_score}`, node.x, node.y - radius - 6);
           }
+          ctx.restore();
         }
       });
 
@@ -321,44 +639,43 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({
     return () => cancelAnimationFrame(animationId);
   }, [simNodes, edges, selectedNode, pan, zoom, overlays, highlightedNodeId]);
 
-  // Adjust canvas size to window size
+  // Adjust canvas size to container and maintain centered view on resize
   useEffect(() => {
-    const handleResize = () => {
-      const canvas = canvasRef.current;
-      if (canvas) {
-        canvas.width = canvas.parentElement?.clientWidth || window.innerWidth;
-        canvas.height = canvas.parentElement?.clientHeight || window.innerHeight;
+    const container = containerRef.current;
+    const canvas = canvasRef.current;
+    if (!container || !canvas) return;
+
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (width <= 0 || height <= 0) continue;
+
+        const oldWidth = canvas.width;
+        const oldHeight = canvas.height;
+
+        canvas.width = width;
+        canvas.height = height;
+
+        if (oldWidth <= 0 || oldHeight <= 0 || !hasUserInteractedRef.current) {
+          if (simNodesRef.current.length > 0) {
+            const { zoom: fitZoom, pan: fitPan } = computeFitView(simNodesRef.current, width, height);
+            setZoom(fitZoom);
+            setPan(fitPan);
+          } else {
+            setPan({ x: width / 2, y: height / 2 });
+          }
+        } else {
+          setPan((prev) => ({
+            x: prev.x + (width - oldWidth) / 2,
+            y: prev.y + (height - oldHeight) / 2,
+          }));
+        }
       }
-    };
-    window.addEventListener('resize', handleResize);
-    handleResize();
-    return () => window.removeEventListener('resize', handleResize);
+    });
+
+    ro.observe(container);
+    return () => ro.disconnect();
   }, []);
-
-  const getNodeRadius = (type: string) => {
-    switch (type) {
-      case 'REPOSITORY': return 25;
-      case 'FILE': return 12;
-      case 'CLASS': return 8;
-      case 'FUNCTION': return 6;
-      case 'IMPORT': return 5;
-      case 'CALL': return 4;
-      default: return 6;
-    }
-  };
-
-  const getNodeColor = (type: string) => {
-    switch (type) {
-      case 'REPOSITORY': return '#4f46e5'; // Deep Indigo
-      case 'FILE': return '#2563eb';       // Blue
-      case 'CLASS': return '#0891b2';      // Cyan
-      case 'FUNCTION': return '#059669';   // Green
-      case 'IMPORT': return '#8b5cf6';     // Purple
-      case 'CALL': return '#f59e0b';       // Amber
-      case 'SECURITY_FINDING': return '#dc2626'; // Red
-      default: return '#6b7280';
-    }
-  };
 
   // Interaction handlers
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -386,7 +703,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({
     if (clickedNode) {
       draggedNodeRef.current = clickedNode;
       onSelectNode(clickedNode);
-      
+
       // Double click detection
       const now = Date.now();
       if (now - lastClickRef.current.time < 300 && lastClickRef.current.nodeId === clickedNode.id) {
@@ -404,17 +721,19 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({
     if (!canvas) return;
 
     if (draggedNodeRef.current) {
+      hasUserInteractedRef.current = true;
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
-      
+
       // Convert coordinates
       draggedNodeRef.current.x = (x - pan.x) / zoom;
       draggedNodeRef.current.y = (y - pan.y) / zoom;
     } else if (isDraggingViewportRef.current) {
+      hasUserInteractedRef.current = true;
       setPan({
         x: e.clientX - dragStartRef.current.x,
-        y: e.clientY - dragStartRef.current.y
+        y: e.clientY - dragStartRef.current.y,
       });
     }
   };
@@ -426,28 +745,41 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({
 
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
-    const zoomFactor = 1.1;
-    let newZoom = zoom;
-    if (e.deltaY < 0) {
-      newZoom *= zoomFactor;
-    } else {
-      newZoom /= zoomFactor;
-    }
-    
-    // Clamp zoom levels
-    setZoom(Math.max(0.15, Math.min(newZoom, 4)));
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    hasUserInteractedRef.current = true;
+
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+    const newZoom = Math.max(0.15, Math.min(zoom * factor, 4));
+    const scale = newZoom / zoom;
+
+    setPan((prev) => ({
+      x: mouseX - (mouseX - prev.x) * scale,
+      y: mouseY - (mouseY - prev.y) * scale,
+    }));
+    setZoom(newZoom);
   };
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}>
-      <canvas 
+    <div
+      ref={containerRef}
+      style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}
+    >
+      <canvas
         ref={canvasRef}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
         onWheel={handleWheel}
-        style={{ cursor: draggedNodeRef.current ? 'grabbing' : isDraggingViewportRef.current ? 'move' : 'default', display: 'block' }}
+        style={{
+          cursor: draggedNodeRef.current ? 'grabbing' : isDraggingViewportRef.current ? 'move' : 'default',
+          display: 'block',
+        }}
       />
     </div>
   );

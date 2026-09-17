@@ -1,10 +1,10 @@
-import React from 'react';
+﻿import React from 'react';
 import { 
   ZoomIn, 
   ZoomOut, 
   RotateCcw, 
   Activity,
-  HelpCircle
+  Compass
 } from 'lucide-react';
 
 interface ToolbarProps {
@@ -13,6 +13,7 @@ interface ToolbarProps {
   onReset: () => void;
   nodesCount: number;
   edgesCount: number;
+  status?: string;
 }
 
 export const GraphToolbar: React.FC<ToolbarProps> = ({
@@ -21,75 +22,110 @@ export const GraphToolbar: React.FC<ToolbarProps> = ({
   onReset,
   nodesCount,
   edgesCount,
+  status = 'STABLE'
 }) => {
   return (
     <div style={{
       position: 'absolute',
-      bottom: '20px',
-      left: '20px',
+      bottom: '16px',
+      left: '16px',
       display: 'flex',
       alignItems: 'center',
-      gap: '12px',
-      zIndex: 10
+      gap: '8px',
+      zIndex: 15,
+      userSelect: 'none'
     }}>
-      {/* Controls panel */}
-      <div className="glass-panel" style={{ display: 'flex', padding: '6px', gap: '4px', borderRadius: '8px' }}>
+      {/* Zoom / Viewport Buttons */}
+      <div 
+        className="console-panel"
+        style={{ 
+          display: 'flex', 
+          padding: '3px', 
+          gap: '3px',
+          background: 'rgba(18, 22, 28, 0.85)',
+          backdropFilter: 'blur(6px)'
+        }}
+      >
         <button 
           onClick={onZoomIn}
-          className="glass-btn"
-          style={{ padding: '6px', borderRadius: '6px' }}
+          className="console-btn"
+          style={{ padding: '5px 7px' }}
           title="Zoom In"
         >
-          <ZoomIn size={14} />
+          <ZoomIn size={13} />
         </button>
         <button 
           onClick={onZoomOut}
-          className="glass-btn"
-          style={{ padding: '6px', borderRadius: '6px' }}
+          className="console-btn"
+          style={{ padding: '5px 7px' }}
           title="Zoom Out"
         >
-          <ZoomOut size={14} />
+          <ZoomOut size={13} />
         </button>
         <button 
           onClick={onReset}
-          className="glass-btn"
-          style={{ padding: '6px', borderRadius: '6px' }}
-          title="Reset View"
+          className="console-btn"
+          style={{ padding: '5px 9px', gap: '5px' }}
+          title="Reset & Center View"
         >
-          <RotateCcw size={14} />
+          <RotateCcw size={12} />
+          <span>RESET</span>
         </button>
       </div>
 
-      {/* Graph info badge */}
-      <div className="glass-panel" style={{ 
-        display: 'flex', 
-        alignItems: 'center', 
-        gap: '8px', 
-        padding: '6px 12px', 
-        fontSize: '0.75rem', 
-        borderRadius: '8px',
-        color: 'rgba(255,255,255,0.6)',
-        fontWeight: 500
-      }}>
-        <Activity size={12} style={{ color: '#10b981' }} />
-        <span>Nodes: <strong style={{ color: '#ffffff' }}>{nodesCount}</strong></span>
-        <span style={{ color: 'rgba(255,255,255,0.15)' }}>|</span>
-        <span>Edges: <strong style={{ color: '#ffffff' }}>{edgesCount}</strong></span>
+      {/* Nodes and Edges Metric Badge */}
+      <div 
+        className="console-panel"
+        style={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: '10px', 
+          padding: '6px 12px', 
+          fontSize: '11px',
+          fontFamily: 'var(--font-mono)',
+          color: 'var(--ink-secondary)',
+          background: 'rgba(18, 22, 28, 0.85)',
+          backdropFilter: 'blur(6px)'
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+          <Activity size={12} style={{ color: 'var(--status-green)' }} />
+          <span style={{ color: 'var(--ink-muted)' }}>NODES:</span>
+          <span className="mono-num" style={{ color: 'var(--ink-primary)', fontWeight: 600 }}>{nodesCount}</span>
+        </div>
+
+        <span style={{ color: 'var(--hairline)' }}>|</span>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+          <span style={{ color: 'var(--ink-muted)' }}>EDGES:</span>
+          <span className="mono-num" style={{ color: 'var(--ink-primary)', fontWeight: 600 }}>{edgesCount}</span>
+        </div>
+
+        <span style={{ color: 'var(--hairline)' }}>|</span>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <span className="status-dot status-dot-green" />
+          <span style={{ color: 'var(--status-green)', fontSize: '10px', fontWeight: 600 }}>{status}</span>
+        </div>
       </div>
 
-      {/* Guide tooltip */}
-      <div className="glass-panel" style={{ 
-        display: 'flex', 
-        alignItems: 'center', 
-        gap: '6px', 
-        padding: '6px 12px', 
-        fontSize: '0.72rem', 
-        borderRadius: '8px',
-        color: 'rgba(255,255,255,0.4)',
-        fontWeight: 500
-      }}>
-        <HelpCircle size={11} />
-        <span>Double-click File/Class to expand structure</span>
+      {/* Quick interaction hint */}
+      <div 
+        className="console-panel"
+        style={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: '6px', 
+          padding: '6px 10px', 
+          fontSize: '10.5px',
+          fontFamily: 'var(--font-mono)',
+          color: 'var(--ink-muted)',
+          background: 'rgba(18, 22, 28, 0.85)',
+          backdropFilter: 'blur(6px)'
+        }}
+      >
+        <Compass size={12} style={{ color: 'var(--accent-amber)' }} />
+        <span>DBL-CLICK FILE/CLASS TO EXPAND</span>
       </div>
     </div>
   );

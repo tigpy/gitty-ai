@@ -1,18 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { api } from '../../services/api';
-import type { Repository, GraphNode, User } from '../../types';
-import { AuthModal } from '../auth/AuthModal';
+import React, { useState } from 'react';
+import type { Repository, GraphNode } from '../../types';
 import { 
   Folder, 
-  ShieldAlert, 
   Trash2, 
-  GitFork, 
   Search, 
-  Info,
-  TrendingDown,
-  User as UserIcon,
-  LogIn,
-  LogOut
+  ShieldAlert, 
+  Activity, 
+  GitBranch, 
+  Layers,
+  Terminal,
+  Compass
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -32,6 +29,7 @@ interface SidebarProps {
   loadingRepos: boolean;
   analyzing: boolean;
   onStartAnalyze: (url: string) => void;
+  onDeleteRepo?: (repoId: string, repoName: string) => void;
 }
 
 export const RepositorySidebar: React.FC<SidebarProps> = ({
@@ -42,79 +40,19 @@ export const RepositorySidebar: React.FC<SidebarProps> = ({
   overlays,
   onToggleOverlay,
   repos,
-  setRepos,
   loadingRepos,
   analyzing,
   onStartAnalyze,
+  onDeleteRepo,
 }) => {
   const [urlInput, setUrlInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [user, setUser] = useState<User | null>(null);
-  const [isAuthOpen, setIsAuthOpen] = useState(false);
 
-  useEffect(() => {
-    if (api.getToken()) {
-      api.getMe()
-        .then(setUser)
-        .catch(() => {
-          api.clearToken();
-          setUser(null);
-        });
-    }
-  }, []);
-
-  const handleAuthSuccess = async (authenticatedUser: User) => {
-    setUser(authenticatedUser);
-    try {
-      const refreshed = await api.getRepositories();
-      setRepos(refreshed);
-      if (refreshed.length > 0) {
-        onSelectRepo(refreshed[0]);
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const handleLogout = async () => {
-    api.clearToken();
-    setUser(null);
-    try {
-      const refreshed = await api.getRepositories();
-      setRepos(refreshed);
-      onSelectRepo(refreshed[0] || null);
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const handleAnalyzeClick = () => {
-    if (!urlInput.trim()) return;
-    if (!user && !api.getToken()) {
-      setIsAuthOpen(true);
-      return;
-    }
+  const handleAnalyzeSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!urlInput.trim() || analyzing) return;
     onStartAnalyze(urlInput.trim());
     setUrlInput('');
-  };
-
-  const handleDelete = async (repoId: string, name: string) => {
-    if (confirm(`Are you sure you want to delete ${name}?`)) {
-      try {
-        await api.deleteRepository(repoId);
-        const refreshed = await api.getRepositories();
-        setRepos(refreshed);
-        if (selectedRepo?.id === repoId) {
-          if (refreshed.length > 0) {
-            onSelectRepo(refreshed[0]);
-          } else {
-            onSelectRepo(null);
-          }
-        }
-      } catch (err) {
-        alert('Failed to delete repository');
-      }
-    }
   };
 
   const files = nodes.filter(n => n.node_type === 'FILE');
@@ -124,310 +62,333 @@ export const RepositorySidebar: React.FC<SidebarProps> = ({
   );
 
   return (
-    <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      <AuthModal
-        isOpen={isAuthOpen}
-        onClose={() => setIsAuthOpen(false)}
-        onAuthSuccess={handleAuthSuccess}
-      />
-
-      {/* Brand Header */}
-      <div style={{ padding: '20px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <h1 style={{ 
-              margin: 0, 
-              fontFamily: 'Outfit', 
-              fontSize: '1.5rem', 
-              fontWeight: 800, 
-              background: 'linear-gradient(90deg, #818cf8 0%, #c084fc 100%)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px'
-            }}>
-              <GitFork style={{ color: '#818cf8' }} /> Gitty AI
-            </h1>
-            <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', fontWeight: 500 }}>REPOSITORY INTELLIGENCE v10.0</span>
-          </div>
-
-          {user ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <div 
-                title={`Logged in as ${user.username}`}
-                style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  gap: '4px', 
-                  fontSize: '0.75rem', 
-                  background: 'rgba(129, 140, 248, 0.12)', 
-                  color: '#818cf8', 
-                  padding: '3px 8px', 
-                  borderRadius: '12px',
-                  maxWidth: '100px',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap'
-                }}
-              >
-                <UserIcon size={12} /> {user.username}
-              </div>
-              <button
-                onClick={handleLogout}
-                title="Sign Out"
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: 'rgba(255,255,255,0.5)',
-                  cursor: 'pointer',
-                  padding: '4px'
-                }}
-              >
-                <LogOut size={14} />
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setIsAuthOpen(true)}
-              className="glass-btn"
-              style={{
-                fontSize: '0.75rem',
-                padding: '4px 10px',
-                gap: '4px'
-              }}
-            >
-              <LogIn size={13} /> Sign In
-            </button>
-          )}
+    <aside 
+      className="console-panel"
+      style={{
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        userSelect: 'none',
+        overflow: 'hidden'
+      }}
+    >
+      {/* Panel Header */}
+      <div style={{
+        padding: '12px 14px',
+        borderBottom: '1px solid var(--hairline)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        background: 'var(--bg-raised)'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Layers size={14} style={{ color: 'var(--accent-amber)' }} />
+          <span className="tech-header">EXPLORER & INDEX</span>
         </div>
+        <span className="tech-label" style={{ color: 'var(--accent-amber-bright)' }}>
+          {repos.length} REPOS
+        </span>
       </div>
 
-      {/* Analyze Repository Section */}
-      <div style={{ padding: '16px 12px 12px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-        <label style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', fontWeight: 600, display: 'block', marginBottom: '8px', textTransform: 'uppercase' }}>Analyze Repository</label>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      {/* Ingest Repository Command Section */}
+      <div style={{
+        padding: '12px 14px',
+        borderBottom: '1px solid var(--hairline)',
+        background: 'var(--bg-panel)'
+      }}>
+        <div className="tech-label" style={{ marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+          <Terminal size={11} style={{ color: 'var(--accent-amber)' }} />
+          <span>INGEST TARGET REPO</span>
+        </div>
+        <form onSubmit={handleAnalyzeSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <input 
             type="text" 
             placeholder="https://github.com/owner/repo"
             value={urlInput}
             onChange={(e) => setUrlInput(e.target.value)}
             disabled={analyzing}
-            className="glass-input"
-            style={{ width: '100%', fontSize: '0.85rem' }}
+            className="console-input"
+            style={{ width: '100%' }}
           />
           <button
-            onClick={handleAnalyzeClick}
+            type="submit"
             disabled={analyzing || !urlInput.trim()}
-            className="glass-btn active"
-            style={{ 
-              width: '100%', 
-              justifyContent: 'center', 
-              fontSize: '0.85rem', 
-              padding: '8px',
-              background: 'linear-gradient(90deg, #818cf8 0%, #c084fc 100%)',
-              border: 'none',
-              color: '#ffffff',
-              cursor: analyzing || !urlInput.trim() ? 'not-allowed' : 'pointer',
-              opacity: analyzing || !urlInput.trim() ? 0.6 : 1
+            className="console-btn console-btn-primary"
+            style={{
+              justifyContent: 'center',
+              width: '100%',
+              opacity: analyzing || !urlInput.trim() ? 0.6 : 1,
+              cursor: analyzing || !urlInput.trim() ? 'not-allowed' : 'pointer'
             }}
           >
-            {analyzing ? 'Analyzing...' : 'Analyze'}
+            {analyzing ? 'ANALYZING GRAPH...' : 'INGEST & ANALYZE'}
           </button>
-        </div>
+        </form>
       </div>
 
-      {/* Repositories List Section */}
-      <div style={{ padding: '16px 12px 8px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)', maxHeight: '160px', overflowY: 'auto' }}>
-        <label style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', fontWeight: 600, display: 'block', marginBottom: '8px', textTransform: 'uppercase' }}>Repositories</label>
+      {/* Repositories Selection List */}
+      <div style={{
+        padding: '10px 14px',
+        borderBottom: '1px solid var(--hairline)',
+        maxHeight: '140px',
+        overflowY: 'auto',
+        background: 'var(--bg-panel)'
+      }}>
+        <div className="tech-label" style={{ marginBottom: '6px', display: 'flex', justifyContent: 'space-between' }}>
+          <span>AVAILABLE TARGETS</span>
+          <span className="mono-num">{repos.length}</span>
+        </div>
+
         {loadingRepos ? (
-          <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem' }}>Loading repositories...</div>
+          <div style={{ color: 'var(--ink-muted)', fontSize: '11px', fontFamily: 'var(--font-mono)', padding: '6px 0' }}>
+            SCANNING REPOSITORIES...
+          </div>
+        ) : repos.length === 0 ? (
+          <div style={{ color: 'var(--ink-muted)', fontSize: '11px', fontFamily: 'var(--font-mono)', padding: '6px 0' }}>
+            NO REPOSITORIES IN INDEX
+          </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            {repos.map(r => (
-              <div 
-                key={r.id}
-                onClick={() => onSelectRepo(r)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '6px 8px',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  background: selectedRepo?.id === r.id ? 'rgba(129, 140, 248, 0.15)' : 'rgba(255,255,255,0.02)',
-                  border: selectedRepo?.id === r.id ? '1px solid rgba(129, 140, 248, 0.3)' : '1px solid transparent',
-                  color: selectedRepo?.id === r.id ? '#ffffff' : 'rgba(255,255,255,0.7)',
-                  transition: 'all 0.15s ease'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
-                  <span style={{ 
-                    width: '6px', 
-                    height: '6px', 
-                    borderRadius: '50%', 
-                    background: selectedRepo?.id === r.id ? '#818cf8' : 'rgba(255,255,255,0.4)', 
-                    display: 'inline-block',
-                    flexShrink: 0
-                  }} />
-                  <span style={{ fontSize: '0.8rem', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{r.name}</span>
-                </div>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDelete(r.id, r.name);
-                  }}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            {repos.map((repo, idx) => {
+              const isSelected = selectedRepo?.id === repo.id;
+              const indexStr = String(idx + 1).padStart(2, '0');
+              return (
+                <div
+                  key={repo.id}
+                  onClick={() => onSelectRepo(repo)}
                   style={{
-                    background: 'none',
-                    border: 'none',
-                    color: 'rgba(239, 68, 68, 0.6)',
-                    cursor: 'pointer',
-                    padding: '2px',
                     display: 'flex',
-                    alignItems: 'center'
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '5px 8px',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    background: isSelected ? 'var(--bg-active)' : 'transparent',
+                    border: '1px solid',
+                    borderColor: isSelected ? 'var(--accent-amber)' : 'transparent',
+                    color: isSelected ? 'var(--accent-amber-bright)' : 'var(--ink-primary)',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: '11px',
+                    transition: 'all 0.15s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isSelected) {
+                      e.currentTarget.style.background = 'var(--bg-hover)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isSelected) {
+                      e.currentTarget.style.background = 'transparent';
+                    }
                   }}
                 >
-                  <Trash2 size={12} />
-                </button>
-              </div>
-            ))}
-            {repos.length === 0 && (
-              <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.75rem', textAlign: 'center' }}>No repositories found</div>
-            )}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '7px', overflow: 'hidden' }}>
+                    <span style={{ color: 'var(--ink-muted)', fontSize: '10px' }}>{indexStr}</span>
+                    <GitBranch size={12} style={{ color: isSelected ? 'var(--accent-amber)' : 'var(--ink-muted)', flexShrink: 0 }} />
+                    <span style={{ 
+                      overflow: 'hidden', 
+                      textOverflow: 'ellipsis', 
+                      whiteSpace: 'nowrap',
+                      fontWeight: isSelected ? 600 : 400
+                    }}>
+                      {repo.name}
+                    </span>
+                  </div>
+
+                  {onDeleteRepo && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteRepo(repo.id, repo.name);
+                      }}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: 'var(--ink-muted)',
+                        cursor: 'pointer',
+                        padding: '2px',
+                        display: 'flex',
+                        alignItems: 'center'
+                      }}
+                      title="Purge repository from index"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
 
-      {/* Overlay Toggles */}
-      <div style={{ padding: '12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-        <label style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', fontWeight: 600, display: 'block', marginBottom: '8px', textTransform: 'uppercase' }}>Graph Overlays</label>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-          <button 
-            className={`glass-btn ${overlays.security ? 'active' : ''}`}
+      {/* Technical HUD Overlays Toggles */}
+      <div style={{
+        padding: '10px 14px',
+        borderBottom: '1px solid var(--hairline)',
+        background: 'var(--bg-panel)'
+      }}>
+        <div className="tech-label" style={{ marginBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
+          <span>HUD GRAPH OVERLAYS</span>
+          <span>FILTER</span>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+          <button
             onClick={() => onToggleOverlay('security')}
-            style={{ fontSize: '0.75rem', padding: '6px 8px', justifyContent: 'center' }}
+            className={`console-btn ${overlays.security ? 'active' : ''}`}
+            style={{ padding: '5px 6px', fontSize: '10px', justifyContent: 'center' }}
           >
-            <ShieldAlert size={14} /> Security
+            <ShieldAlert size={12} style={{ color: overlays.security ? 'var(--status-red)' : 'inherit' }} />
+            SECURITY
           </button>
-          <button 
-            className={`glass-btn ${overlays.deadCode ? 'active' : ''}`}
+
+          <button
             onClick={() => onToggleOverlay('deadCode')}
-            style={{ fontSize: '0.75rem', padding: '6px 8px', justifyContent: 'center' }}
+            className={`console-btn ${overlays.deadCode ? 'active' : ''}`}
+            style={{ padding: '5px 6px', fontSize: '10px', justifyContent: 'center' }}
           >
-            <Trash2 size={14} /> Dead Code
+            <Trash2 size={12} style={{ color: overlays.deadCode ? 'var(--ink-muted)' : 'inherit' }} />
+            DEAD CODE
           </button>
-          <button 
-            className={`glass-btn ${overlays.smells ? 'active' : ''}`}
+
+          <button
             onClick={() => onToggleOverlay('smells')}
-            style={{ fontSize: '0.75rem', padding: '6px 8px', justifyContent: 'center', gridColumn: 'span 2' }}
+            className={`console-btn ${overlays.smells ? 'active' : ''}`}
+            style={{ padding: '5px 6px', fontSize: '10px', justifyContent: 'center' }}
           >
-            <TrendingDown size={14} /> Architecture Smells
+            <Activity size={12} style={{ color: overlays.smells ? 'var(--accent-orange)' : 'inherit' }} />
+            ARCH SMELLS
+          </button>
+
+          <button
+            onClick={() => onToggleOverlay('callGraph')}
+            className={`console-btn ${overlays.callGraph ? 'active' : ''}`}
+            style={{ padding: '5px 6px', fontSize: '10px', justifyContent: 'center' }}
+          >
+            <Compass size={12} style={{ color: overlays.callGraph ? 'var(--status-green)' : 'inherit' }} />
+            CALL PATHS
           </button>
         </div>
       </div>
 
-      {/* File Search */}
-      <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      {/* File Search & Directory Navigator */}
+      <div style={{ padding: '10px 14px 6px 14px' }}>
+        <div className="tech-label" style={{ marginBottom: '6px', display: 'flex', justifyContent: 'space-between' }}>
+          <span>SOURCE ARTIFACTS</span>
+          <span className="mono-num">{filteredFiles.length} / {files.length}</span>
+        </div>
         <div style={{ position: 'relative' }}>
-          <Search size={14} style={{ position: 'absolute', left: '10px', top: '11px', color: 'rgba(255,255,255,0.4)' }} />
+          <Search size={13} style={{ position: 'absolute', left: '8px', top: '7px', color: 'var(--ink-muted)' }} />
           <input 
             type="text" 
-            placeholder="Search files..."
+            placeholder="Search source files..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="glass-input"
-            style={{ width: '100%', paddingLeft: '30px', fontSize: '0.85rem' }}
+            className="console-input"
+            style={{ width: '100%', paddingLeft: '26px' }}
           />
         </div>
       </div>
 
       {/* Files List */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '0 12px 12px 12px' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          {filteredFiles.map(f => (
-            <div 
-              key={f.id}
-              onClick={() => onSelectNode(f)}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '4px 14px 10px 14px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+          {filteredFiles.map(file => (
+            <div
+              key={file.id}
+              onClick={() => onSelectNode(file)}
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px',
-                padding: '6px 8px',
-                borderRadius: '6px',
+                gap: '6px',
+                padding: '4px 6px',
+                borderRadius: '4px',
                 cursor: 'pointer',
-                background: 'rgba(255,255,255,0.01)',
-                border: '1px solid transparent',
-                transition: 'all 0.15s ease'
+                fontFamily: 'var(--font-mono)',
+                fontSize: '11px',
+                color: file.dead_code ? 'var(--ink-muted)' : 'var(--ink-primary)',
+                transition: 'background 0.1s ease'
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
-                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.05)';
+                e.currentTarget.style.background = 'var(--bg-hover)';
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'rgba(255,255,255,0.01)';
-                e.currentTarget.style.borderColor = 'transparent';
+                e.currentTarget.style.background = 'transparent';
               }}
             >
-              <Folder size={14} style={{ color: '#60a5fa', flexShrink: 0 }} />
-              <span style={{ 
-                fontSize: '0.85rem', 
-                whiteSpace: 'nowrap', 
-                overflow: 'hidden', 
+              <Folder size={12} style={{ color: 'var(--ink-secondary)', flexShrink: 0 }} />
+              <span style={{
+                overflow: 'hidden',
                 textOverflow: 'ellipsis',
-                color: f.dead_code ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.85)'
+                whiteSpace: 'nowrap',
+                flex: 1
               }}>
-                {f.label}
+                {file.label}
               </span>
-              {f.security_score !== undefined && f.security_score !== null && f.security_score < 100 && (
+
+              {file.security_score !== undefined && file.security_score !== null && file.security_score < 100 && (
                 <span 
                   className="badge badge-critical" 
-                  style={{ marginLeft: 'auto', fontSize: '0.65rem', padding: '1px 4px' }}
+                  style={{ fontSize: '9px', padding: '0 4px', lineHeight: '14px' }}
                 >
-                  {f.security_score}
+                  SEC {file.security_score}
                 </span>
               )}
             </div>
           ))}
+
           {filteredFiles.length === 0 && (
-            <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.85rem', textAlign: 'center', marginTop: '20px' }}>
-              No files found
+            <div style={{
+              color: 'var(--ink-muted)',
+              fontSize: '11px',
+              fontFamily: 'var(--font-mono)',
+              textAlign: 'center',
+              padding: '16px 0'
+            }}>
+              NO MATCHING ARTIFACTS
             </div>
           )}
         </div>
       </div>
 
       {/* Visual Legend */}
-      <div style={{ 
-        padding: '12px', 
-        borderTop: '1px solid rgba(255,255,255,0.06)', 
-        background: 'rgba(255,255,255,0.01)',
-        fontSize: '0.75rem',
-        color: 'rgba(255,255,255,0.5)'
+      <div style={{
+        padding: '10px 14px',
+        borderTop: '1px solid var(--hairline)',
+        background: 'var(--bg-panel)',
+        fontFamily: 'var(--font-mono)',
+        fontSize: '10px',
+        color: 'var(--ink-muted)'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '8px', fontWeight: 600 }}>
-          <Info size={12} /> Visual Legend
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#6366f1', display: 'inline-block' }} /> Repo
+        <div className="tech-label" style={{ marginBottom: '6px' }}>GRAPH MATRIX LEGEND</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#4f46e5' }} />
+            <span>REPOSITORY</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#3b82f6', display: 'inline-block' }} /> File
+          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#2563eb' }} />
+            <span>FILE</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#06b6d4', display: 'inline-block' }} /> Class
+          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#0891b2' }} />
+            <span>CLASS</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', display: 'inline-block' }} /> Function
+          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#94a3b8' }} />
+            <span>FUNCTION</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} /> Risk
+          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--status-red)' }} />
+            <span>VULNERABILITY</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '2px', border: '1px dashed #9ca3af', display: 'inline-block' }} /> Dead Code
+          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <span style={{ width: '7px', height: '7px', border: '1px dashed var(--ink-muted)' }} />
+            <span>DEAD CODE</span>
           </div>
         </div>
       </div>
-    </div>
+    </aside>
   );
 };
