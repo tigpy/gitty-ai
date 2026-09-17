@@ -146,7 +146,7 @@ def test_ingestion_worker_publisher_init_failure(mock_publisher_cls, mock_scanne
         settings.SQLITE_DB_PATH = original_db
 
 @patch("apps.worker.worker_app.GithubRepositoryScanner")
-@patch("apps.worker.worker_app.SQLiteGraphRepository")
+@patch("apps.worker.worker_app.get_graph_repository")
 @patch("apps.worker.worker_app.RabbitMQPublisher")
 def test_ingestion_worker_graph_build_failure(mock_publisher_cls, mock_repo_cls, mock_scanner_cls, clean_repo_data, tmp_path):
     mock_scanner = MagicMock()

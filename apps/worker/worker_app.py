@@ -6,16 +6,13 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-# If 'libs' namespace package was already loaded by Celery/environment,
-# its cached __path__ won't include our directory. We must insert it.
-if 'libs' in sys.modules:
-    libs_mod = sys.modules['libs']
-    local_libs = os.path.join(project_root, "libs")
-    if hasattr(libs_mod, "__path__") and local_libs not in libs_mod.__path__:
-        if not isinstance(libs_mod.__path__, list):
-            libs_mod.__path__ = list(libs_mod.__path__)
-        libs_mod.__path__.insert(0, local_libs)
+# If a partial namespace 'libs' was loaded from system/win32 before project_root,
+# delete it from sys.modules so it resolves from project_root/libs/__init__.py
+if 'libs' in sys.modules and getattr(sys.modules['libs'], '__file__', None) is None:
+    del sys.modules['libs']
 
+import libs
+from libs.common.progress import publish_progress
 from celery import Celery
 from libs.config import get_settings
 from libs.logging import configure_logging, get_logger
@@ -108,13 +105,13 @@ def index_repository(self, repository_id: str, repo_url: str):
         scan_res = scan_service.scan_remote_repository(repo_url, working_dir, repo_id=repository_id)
     except Exception as e:
         logger.error("Scan failed", repository_id=repository_id, error=str(e))
+        publish_progress(repository_id, "failed", f"Scan failed: {e}")
         return {"status": "failed", "repository_id": repository_id, "error": f"Scan failed: {e}"}
         
     root_path = scan_res["root_path"]
     files = scan_res["files"]
     
     # Parse files into IR Modules
-    from libs.common.progress import publish_progress
     publish_progress(repository_id, "processing", "Parsing Python files...")
     parser_factory = ParserFactory()
     modules = []
@@ -250,7 +247,6 @@ def index_repository(self, repository_id: str, repo_url: str):
 )
 def detect_dead_code(self, repository_id: str):
     logger.info("Starting dead code detection task", repository_id=repository_id)
-    from libs.common.progress import publish_progress
     publish_progress(repository_id, "processing", "Running dead code analysis...")
     
     try:
@@ -283,7 +279,6 @@ def detect_dead_code(self, repository_id: str):
 )
 def analyze_repository_security(self, repository_id: str):
     logger.info("Starting security analysis task", repository_id=repository_id)
-    from libs.common.progress import publish_progress
     publish_progress(repository_id, "processing", "Running security analysis...")
 
     try:
@@ -316,7 +311,6 @@ def analyze_repository_security(self, repository_id: str):
 )
 def build_vector_index(self, repository_id: str):
     logger.info("Starting vector indexing task", repository_id=repository_id)
-    from libs.common.progress import publish_progress
     publish_progress(repository_id, "processing", "Building vector index...")
 
     try:

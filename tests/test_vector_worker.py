@@ -51,10 +51,10 @@ def calculate(a, b):
     # Setup SQLite Graph Repository mock
     repo_id = "test-vector-worker-repo"
     
-    with patch("libs.common.progress.publish_progress") as mock_progress:
-        with patch("apps.worker.worker_app.SQLiteGraphRepository") as mock_repo_cls:
+    with patch("apps.worker.worker_app.publish_progress") as mock_progress:
+        with patch("apps.worker.worker_app.get_graph_repository") as mock_get_repo:
             mock_repo = MagicMock()
-            mock_repo_cls.return_value = mock_repo
+            mock_get_repo.return_value = mock_repo
             
             mock_repo.get_nodes_by_repository.return_value = [
                 {"type": "Repository", "id": repo_id, "name": "mock_vector_repo", "path": str(repo_dir)},

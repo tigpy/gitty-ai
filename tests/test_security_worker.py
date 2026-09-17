@@ -26,10 +26,10 @@ def run():
     # Mock Repository node queries
     repo_id = "test-worker-sec-repo"
     
-    # We patch SQLiteGraphRepository to return mock nodes pointing to our tmp_path repo
-    with patch("apps.worker.worker_app.SQLiteGraphRepository") as mock_repo_cls:
+    # We patch get_graph_repository to return mock nodes pointing to our tmp_path repo
+    with patch("apps.worker.worker_app.get_graph_repository") as mock_get_repo:
         mock_repo = MagicMock()
-        mock_repo_cls.return_value = mock_repo
+        mock_get_repo.return_value = mock_repo
         
         mock_repo.get_nodes_by_repository.return_value = [
             {"type": "Repository", "id": repo_id, "name": "worker_sec", "path": str(repo_dir)},

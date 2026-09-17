@@ -36,6 +36,9 @@ def publish_progress(repository_id: str, status: str, message: str) -> None:
         channel = f"repo_progress:{repository_id}"
         payload = json.dumps({"status": status, "message": message})
         r.publish(channel, payload)
+        # Also store the latest state in Redis (TTL 1 hour) so late/reconnecting SSE clients
+        # or missed pubsub messages receive the current or terminal state immediately
+        r.set(f"repo_status:{repository_id}", payload, ex=3600)
         logger.info(
             f"Published progress: {message}",
             repository_id=repository_id,

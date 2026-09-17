@@ -21,6 +21,7 @@ export const Dashboard: React.FC = () => {
   const [analyzing, setAnalyzing] = useState(false);
   const [progressLogs, setProgressLogs] = useState<string[]>([]);
   const [analyzingRepoName, setAnalyzingRepoName] = useState('');
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   // Graph rendering lists
   const [nodes, setNodes] = useState<GraphNode[]>([]);
@@ -82,6 +83,7 @@ export const Dashboard: React.FC = () => {
     
     setAnalyzingRepoName(cleanRepoName);
     setAnalyzing(true);
+    setAnalysisError(null);
     setProgressLogs(['Queueing analysis task...']);
 
     // Clear stale state if we are re-indexing the currently selected repository
@@ -106,6 +108,7 @@ export const Dashboard: React.FC = () => {
           if (data.status === 'completed') {
             eventSource.close();
             setAnalyzing(false);
+            setAnalysisError(null);
             
             // Reload repositories and select the new one
             api.getRepositories()
@@ -119,24 +122,24 @@ export const Dashboard: React.FC = () => {
               .catch(console.error);
           } else if (data.status === 'failed') {
             eventSource.close();
-            setAnalyzing(false);
+            setAnalysisError(data.message || 'Analysis failed');
           }
         } catch (e) {
           eventSource.close();
-          setAnalyzing(false);
+          setAnalysisError('Failed to parse live log data');
           setProgressLogs(prev => [...prev, 'Failed to parse live log data']);
         }
       };
 
       eventSource.onerror = () => {
         eventSource.close();
-        setAnalyzing(false);
+        setAnalysisError('Error: Event stream disconnected');
         setProgressLogs(prev => [...prev, 'Error: Event stream disconnected']);
       };
 
     } catch (err: any) {
-      setAnalyzing(false);
-      alert(err.message || 'Failed to start analysis');
+      setAnalysisError(err.message || 'Failed to start analysis');
+      setProgressLogs(prev => [...prev, `Error: ${err.message || 'Failed to start analysis'}`]);
     }
   };
 
@@ -277,20 +280,33 @@ export const Dashboard: React.FC = () => {
             gap: '20px'
           }}>
             <div style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '15px' }}>
-              <h2 style={{ margin: 0, fontSize: '1.25rem', fontFamily: 'Outfit', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span style={{ 
-                  width: '18px', 
-                  height: '18px', 
-                  border: '2px solid #818cf8', 
-                  borderTopColor: 'transparent', 
-                  borderRadius: '50%', 
-                  display: 'inline-block', 
-                  animation: 'spin 1s linear infinite' 
-                }} />
-                Analyzing {analyzingRepoName}...
+              <h2 style={{ 
+                margin: 0, 
+                fontSize: '1.25rem', 
+                fontFamily: 'Outfit', 
+                fontWeight: 700, 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '10px',
+                color: analysisError ? '#ef4444' : '#ffffff'
+              }}>
+                {analysisError ? (
+                  <span style={{ color: '#ef4444', fontSize: '1.25rem' }}>✕</span>
+                ) : (
+                  <span style={{ 
+                    width: '18px', 
+                    height: '18px', 
+                    border: '2px solid #818cf8', 
+                    borderTopColor: 'transparent', 
+                    borderRadius: '50%', 
+                    display: 'inline-block', 
+                    animation: 'spin 1s linear infinite' 
+                  }} />
+                )}
+                {analysisError ? 'Analysis Failed' : `Analyzing ${analyzingRepoName}...`}
               </h2>
-              <p style={{ margin: '6px 0 0 0', fontSize: '0.8rem', color: 'rgba(255,255,255,0.45)' }}>
-                Please wait while Gitty parses and indexes the codebase.
+              <p style={{ margin: '6px 0 0 0', fontSize: '0.8rem', color: analysisError ? 'rgba(239, 68, 68, 0.85)' : 'rgba(255,255,255,0.45)' }}>
+                {analysisError ? analysisError : 'Please wait while Gitty parses and indexes the codebase.'}
               </p>
             </div>
             <div style={{
@@ -334,6 +350,28 @@ export const Dashboard: React.FC = () => {
                 );
               })}
             </div>
+            {analysisError && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                <button
+                  onClick={() => {
+                    setAnalyzing(false);
+                    setAnalysisError(null);
+                  }}
+                  style={{
+                    background: '#ef4444',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '8px',
+                    padding: '8px 16px',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                    fontSize: '0.85rem'
+                  }}
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
           </div>
         ) : loadingGraph ? (
           <div style={{

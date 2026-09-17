@@ -170,7 +170,7 @@ class DeadCodeDetectionService:
             # A class is referenced if something inherits from it OR directly calls it
             # (instantiation shows up as a CALLS edge from a function to the class node).
             inherits_edges = [e for e in inbound if e["relationship_type"] == "INHERITS"]
-            call_edges = [e for e in inbound if e["relationship_type"] == "CALLS"]
+            call_edges = [e for e in inbound if e["relationship_type"] in ("CALLS", "BELONGS_TO")]
 
             if not inherits_edges and not call_edges:
                 conf = self.calculate_confidence("Class", path, cls)

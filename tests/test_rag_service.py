@@ -23,7 +23,7 @@ def test_rag_service_success_flow():
         id="c1",
         text="def authenticate(): pass",
         chunk_type="FUNCTION",
-        metadata={"file_path": "auth.py", "symbol_name": "authenticate"},
+        metadata={"file_path": "auth.py", "symbol_name": "authenticate", "_score": 0.95},
         content_hash="h1",
         version=1,
         start_line=1,

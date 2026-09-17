@@ -7,6 +7,7 @@ from .file_discovery_service import FileDiscoveryService
 from .language_detection_service import LanguageDetectionService
 from libs.core.message_bus.interfaces.event_bus import IEventBus
 from libs.events.schemas import RepositoryDiscoveredV1, RepositoryIndexedV1
+from libs.common.progress import publish_progress
 
 class RepositoryScanService:
     def __init__(
@@ -30,7 +31,6 @@ class RepositoryScanService:
         if not repo_id:
             repo_id = str(uuid.uuid4())
 
-        from libs.common.progress import publish_progress
         publish_progress(repo_id, "processing", "Cloning repository...")
 
         root_path = self.scanner.clone_or_fetch(repo_url, working_dir)

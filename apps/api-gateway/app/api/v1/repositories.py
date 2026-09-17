@@ -160,10 +160,33 @@ async def progress_stream(
         try:
             # Initial SSE event
             yield f"data: {json.dumps({'status': 'queued', 'message': 'Connecting live log stream...'})}\n\n"
+
+            # Check if there is already a cached status in Redis (handles rapid failure/completion)
+            cached_status = None
+            try:
+                get_res = r.get(f"repo_status:{repo_id}")
+                if asyncio.iscoroutine(get_res) or hasattr(get_res, "__await__"):
+                    cached_status = await get_res
+                elif isinstance(get_res, (str, bytes)):
+                    cached_status = get_res
+            except Exception:
+                pass
+
+            if cached_status:
+                try:
+                    data_str = cached_status.decode('utf-8') if isinstance(cached_status, bytes) else cached_status
+                    data_obj = json.loads(data_str)
+                    yield f"data: {data_str}\n\n"
+                    if data_obj.get("status") in ("completed", "failed"):
+                        return
+                except Exception:
+                    pass
             
+            idle_ticks = 0
             while True:
                 message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
                 if message and message.get("data"):
+                    idle_ticks = 0
                     data = message['data'].decode('utf-8')
                     yield f"data: {data}\n\n"
                     
@@ -173,6 +196,34 @@ async def progress_stream(
                             break
                     except Exception:
                         pass
+                else:
+                    idle_ticks += 1
+                    # Periodically check Redis status cache every 5 ticks in case a pubsub message was missed
+                    if idle_ticks % 5 == 0:
+                        cached = None
+                        try:
+                            get_res = r.get(f"repo_status:{repo_id}")
+                            if asyncio.iscoroutine(get_res) or hasattr(get_res, "__await__"):
+                                cached = await get_res
+                            elif isinstance(get_res, (str, bytes)):
+                                cached = get_res
+                        except Exception:
+                            pass
+
+                        if cached:
+                            try:
+                                d_str = cached.decode('utf-8') if isinstance(cached, bytes) else cached
+                                d_obj = json.loads(d_str)
+                                if d_obj.get("status") in ("completed", "failed"):
+                                    yield f"data: {d_str}\n\n"
+                                    break
+                            except Exception:
+                                pass
+                    # Safety timeout after 10 minutes of total inactivity
+                    if idle_ticks > 600:
+                        yield f"data: {json.dumps({'status': 'failed', 'message': 'Analysis timed out'})}\n\n"
+                        break
+
                 await asyncio.sleep(0.1)
         except asyncio.CancelledError:
             logger.info("SSE client disconnected from progress stream", repo_id=repo_id)
