@@ -14,6 +14,7 @@ RUN pip install --no-cache-dir -r apps/api-gateway/requirements.txt
 
 # Copy source code and libraries
 COPY libs/ ./libs/
+COPY services/ ./services/
 COPY apps/api-gateway/ ./apps/api-gateway/
 
 # Install local libs

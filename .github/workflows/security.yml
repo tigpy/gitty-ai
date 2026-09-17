@@ -19,16 +19,16 @@ jobs:
       - name: Install Bandit
         run: pip install bandit
       - name: Run Bandit
-        run: bandit -r . -x ./tests,./apps/auth-service/node_modules -ll --exit-zero
+        run: bandit -r . -x ./tests,./venv,./apps/frontend/node_modules,./data -ll
 
   npm-audit:
     name: NPM Audit Scan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Run audit in auth-service
+      - name: Run audit in frontend
         run: |
-          cd apps/auth-service
+          cd apps/frontend
           if [ -f package.json ]; then
-            npm audit --audit-level=high || true
+            npm audit --audit-level=high
           fi

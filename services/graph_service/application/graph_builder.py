@@ -35,7 +35,6 @@ class GraphBuilder:
 
         # Build repository node
         repo_node = self.nb.build_repository_node(repo_id, repo_name, repo_path)
-        self.repository.add_node(repo_node.id, repo_node.type, repo_node.model_dump())
 
         # 2. Register Symbols in SymbolTable
         self.symbol_table.clear()
@@ -66,31 +65,27 @@ class GraphBuilder:
                     method_node_id = self.nb.build_function_node(class_node_id, method.name, mod.file_path).id
                     self.symbol_table.register_node_id(method_fq, method_node_id)
 
-        # 3. Translate IR Modules to Nodes & Edges
-        nodes_count = 1 # repo node
-        edges_count = 0
+        # 3. Translate IR Modules to Nodes & Edges in Batches
+        batch_nodes: List[Any] = [(repo_node.id, repo_node.type, repo_node.model_dump())]
+        batch_edges: List[Any] = []
 
         for mod in modules:
             file_node = self.nb.build_file_node(repo_id, mod.file_path)
-            self.repository.add_node(file_node.id, file_node.type, file_node.model_dump())
-            nodes_count += 1
+            batch_nodes.append((file_node.id, file_node.type, file_node.model_dump()))
 
             # Link Repo -> File
             rel = self.rb.build_relationship(repo_node.id, file_node.id, "CONTAINS")
-            self.repository.add_edge(rel.source_node, rel.target_node, rel.relationship_type, rel.metadata)
-            edges_count += 1
+            batch_edges.append((rel.source_node, rel.target_node, rel.relationship_type, rel.metadata))
 
             # Build Import Nodes & Edges
             for imp in mod.imports:
                 imp_name = f"{imp.module}.{imp.name}" if imp.module else imp.name
                 imp_node = self.nb.build_import_node(file_node.id, imp_name, mod.file_path, {"alias": imp.alias})
-                self.repository.add_node(imp_node.id, imp_node.type, imp_node.model_dump())
-                nodes_count += 1
+                batch_nodes.append((imp_node.id, imp_node.type, imp_node.model_dump()))
 
                 # Link File -> Import
                 rel = self.rb.build_relationship(file_node.id, imp_node.id, "IMPORTS")
-                self.repository.add_edge(rel.source_node, rel.target_node, rel.relationship_type, rel.metadata)
-                edges_count += 1
+                batch_edges.append((rel.source_node, rel.target_node, rel.relationship_type, rel.metadata))
 
             # Build Top-level Functions
             for func in mod.functions:
@@ -101,16 +96,14 @@ class GraphBuilder:
                     "end_line": func.end_line,
                     "decorators": func.decorators
                 })
-                self.repository.add_node(func_node.id, func_node.type, func_node.model_dump())
-                nodes_count += 1
+                batch_nodes.append((func_node.id, func_node.type, func_node.model_dump()))
 
                 # Link File -> Function
                 rel = self.rb.build_relationship(file_node.id, func_node.id, "CONTAINS")
-                self.repository.add_edge(rel.source_node, rel.target_node, rel.relationship_type, rel.metadata)
-                edges_count += 1
+                batch_edges.append((rel.source_node, rel.target_node, rel.relationship_type, rel.metadata))
 
                 # Add Call Nodes
-                edges_count += self._process_function_calls(func_node.id, func.calls, mod.file_path)
+                self._process_function_calls(func_node.id, func.calls, mod.file_path, batch_nodes, batch_edges)
 
             # Build Classes
             for cls in mod.classes:
@@ -120,24 +113,20 @@ class GraphBuilder:
                     "end_line": cls.end_line,
                     "decorators": cls.decorators
                 })
-                self.repository.add_node(class_node.id, class_node.type, class_node.model_dump())
-                nodes_count += 1
+                batch_nodes.append((class_node.id, class_node.type, class_node.model_dump()))
 
                 # Link File -> Class
                 rel = self.rb.build_relationship(file_node.id, class_node.id, "CONTAINS")
-                self.repository.add_edge(rel.source_node, rel.target_node, rel.relationship_type, rel.metadata)
-                edges_count += 1
+                batch_edges.append((rel.source_node, rel.target_node, rel.relationship_type, rel.metadata))
 
                 # Link Class inherits from base Class (if resolved)
                 for base in cls.bases:
                     resolved_base = self.symbol_table.resolve_symbol(base) or base
-                    # Target node is either registered in the symbol table or fallback to hash
                     target_base_id = self.symbol_table.get_node_id(resolved_base)
                     if not target_base_id:
                         target_base_id = hashlib.sha256(f"{file_node.id}:{base}".encode()).hexdigest()
                     rel = self.rb.build_relationship(class_node.id, target_base_id, "INHERITS", {"base_name": resolved_base})
-                    self.repository.add_edge(rel.source_node, rel.target_node, rel.relationship_type, rel.metadata)
-                    edges_count += 1
+                    batch_edges.append((rel.source_node, rel.target_node, rel.relationship_type, rel.metadata))
 
                 # Build Class Methods
                 for method in cls.methods:
@@ -149,16 +138,27 @@ class GraphBuilder:
                         "is_method": True,
                         "decorators": method.decorators
                     })
-                    self.repository.add_node(method_node.id, method_node.type, method_node.model_dump())
-                    nodes_count += 1
+                    batch_nodes.append((method_node.id, method_node.type, method_node.model_dump()))
 
                     # Link Class -> Method
                     rel = self.rb.build_relationship(class_node.id, method_node.id, "CONTAINS")
-                    self.repository.add_edge(rel.source_node, rel.target_node, rel.relationship_type, rel.metadata)
-                    edges_count += 1
+                    batch_edges.append((rel.source_node, rel.target_node, rel.relationship_type, rel.metadata))
 
                     # Add Call Nodes
-                    edges_count += self._process_function_calls(method_node.id, method.calls, mod.file_path)
+                    self._process_function_calls(method_node.id, method.calls, mod.file_path, batch_nodes, batch_edges)
+
+        # 4. Commit Nodes & Edges in Batches
+        if hasattr(self.repository, "add_nodes_batch") and hasattr(self.repository, "add_edges_batch"):
+            self.repository.add_nodes_batch(batch_nodes)
+            self.repository.add_edges_batch(batch_edges)
+        else:
+            for n_id, n_type, n_props in batch_nodes:
+                self.repository.add_node(n_id, n_type, n_props)
+            for s_id, t_id, r_type, r_props in batch_edges:
+                self.repository.add_edge(s_id, t_id, r_type, r_props)
+
+        nodes_count = len(batch_nodes)
+        edges_count = len(batch_edges)
 
         duration_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
         if self.publisher:
@@ -174,8 +174,14 @@ class GraphBuilder:
 
         return {"nodes_created": nodes_count, "edges_created": edges_count}
 
-    def _process_function_calls(self, func_node_id: str, calls: List[Any], file_path: str) -> int:
-        edges_count = 0
+    def _process_function_calls(
+        self,
+        func_node_id: str,
+        calls: List[Any],
+        file_path: str,
+        batch_nodes: List[Any],
+        batch_edges: List[Any]
+    ) -> None:
         for call in calls:
             # Resolve call symbol via SymbolTable
             resolved_target = self.symbol_table.resolve_symbol(call.name) or call.name
@@ -185,12 +191,11 @@ class GraphBuilder:
                 "resolved_target": resolved_target,
                 "arguments": call.arguments
             })
-            self.repository.add_node(call_node.id, call_node.type, call_node.model_dump())
+            batch_nodes.append((call_node.id, call_node.type, call_node.model_dump()))
 
             # Function -> CALLS -> CallNode
             rel_calls = self.rb.build_relationship(func_node_id, call_node.id, "CALLS")
-            self.repository.add_edge(rel_calls.source_node, rel_calls.target_node, rel_calls.relationship_type, rel_calls.metadata)
-            edges_count += 1
+            batch_edges.append((rel_calls.source_node, rel_calls.target_node, rel_calls.relationship_type, rel_calls.metadata))
 
             # CallNode -> BELONGS_TO -> resolved target function hash (if local/resolved)
             target_func_id = self.symbol_table.get_node_id(resolved_target)
@@ -198,7 +203,5 @@ class GraphBuilder:
                 target_func_id = hashlib.sha256(resolved_target.encode()).hexdigest()
                 
             rel_belongs = self.rb.build_relationship(call_node.id, target_func_id, "BELONGS_TO")
-            self.repository.add_edge(rel_belongs.source_node, rel_belongs.target_node, rel_belongs.relationship_type, rel_belongs.metadata)
-            edges_count += 2 # counts as another edge link
+            batch_edges.append((rel_belongs.source_node, rel_belongs.target_node, rel_belongs.relationship_type, rel_belongs.metadata))
 
-        return edges_count

@@ -95,8 +95,8 @@ export const Dashboard: React.FC = () => {
       
       setProgressLogs(prev => [...prev, 'Analysis task queued successfully. Connecting live stream...']);
 
-      // Setup Server-Sent Events (SSE)
-      const eventSource = new EventSource(`http://localhost:8000/api/v1/repositories/${repoId}/progress`);
+      // Setup Server-Sent Events (SSE) with token auth
+      const eventSource = new EventSource(api.getProgressUrl(repoId));
       
       eventSource.onmessage = (event) => {
         try {

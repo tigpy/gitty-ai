@@ -143,7 +143,7 @@ class SemanticSearchService:
         chunks = []
         for doc in merged[:limit]:
             payload = doc.payload
-            meta = {k: v for k, v in payload.items() if k not in ("text_content", "_score")}
+            meta = {k: v for k, v in payload.items() if k != "text_content"}
             chunks.append(Chunk(
                 id=doc.id,
                 text=payload.get("text_content", ""),
@@ -155,3 +155,4 @@ class SemanticSearchService:
                 end_line=payload.get("end_line")
             ))
         return chunks
+

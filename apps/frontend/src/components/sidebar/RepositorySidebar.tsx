@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { api } from '../../services/api';
-import type { Repository, GraphNode } from '../../types';
+import type { Repository, GraphNode, User } from '../../types';
+import { AuthModal } from '../auth/AuthModal';
 import { 
   Folder, 
   ShieldAlert, 
@@ -8,7 +9,10 @@ import {
   GitFork, 
   Search, 
   Info,
-  TrendingDown
+  TrendingDown,
+  User as UserIcon,
+  LogIn,
+  LogOut
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -45,9 +49,51 @@ export const RepositorySidebar: React.FC<SidebarProps> = ({
 }) => {
   const [urlInput, setUrlInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+
+  useEffect(() => {
+    if (api.getToken()) {
+      api.getMe()
+        .then(setUser)
+        .catch(() => {
+          api.clearToken();
+          setUser(null);
+        });
+    }
+  }, []);
+
+  const handleAuthSuccess = async (authenticatedUser: User) => {
+    setUser(authenticatedUser);
+    try {
+      const refreshed = await api.getRepositories();
+      setRepos(refreshed);
+      if (refreshed.length > 0) {
+        onSelectRepo(refreshed[0]);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleLogout = async () => {
+    api.clearToken();
+    setUser(null);
+    try {
+      const refreshed = await api.getRepositories();
+      setRepos(refreshed);
+      onSelectRepo(refreshed[0] || null);
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const handleAnalyzeClick = () => {
     if (!urlInput.trim()) return;
+    if (!user && !api.getToken()) {
+      setIsAuthOpen(true);
+      return;
+    }
     onStartAnalyze(urlInput.trim());
     setUrlInput('');
   };
@@ -79,23 +125,82 @@ export const RepositorySidebar: React.FC<SidebarProps> = ({
 
   return (
     <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+      <AuthModal
+        isOpen={isAuthOpen}
+        onClose={() => setIsAuthOpen(false)}
+        onAuthSuccess={handleAuthSuccess}
+      />
+
       {/* Brand Header */}
       <div style={{ padding: '20px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-        <h1 style={{ 
-          margin: 0, 
-          fontFamily: 'Outfit', 
-          fontSize: '1.5rem', 
-          fontWeight: 800, 
-          background: 'linear-gradient(90deg, #818cf8 0%, #c084fc 100%)',
-          WebkitBackgroundClip: 'text',
-          WebkitTextFillColor: 'transparent',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px'
-        }}>
-          <GitFork style={{ color: '#818cf8' }} /> Gitty AI
-        </h1>
-        <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', fontWeight: 500 }}>REPOSITORY INTELLIGENCE v10.0</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h1 style={{ 
+              margin: 0, 
+              fontFamily: 'Outfit', 
+              fontSize: '1.5rem', 
+              fontWeight: 800, 
+              background: 'linear-gradient(90deg, #818cf8 0%, #c084fc 100%)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}>
+              <GitFork style={{ color: '#818cf8' }} /> Gitty AI
+            </h1>
+            <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', fontWeight: 500 }}>REPOSITORY INTELLIGENCE v10.0</span>
+          </div>
+
+          {user ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div 
+                title={`Logged in as ${user.username}`}
+                style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '4px', 
+                  fontSize: '0.75rem', 
+                  background: 'rgba(129, 140, 248, 0.12)', 
+                  color: '#818cf8', 
+                  padding: '3px 8px', 
+                  borderRadius: '12px',
+                  maxWidth: '100px',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                <UserIcon size={12} /> {user.username}
+              </div>
+              <button
+                onClick={handleLogout}
+                title="Sign Out"
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'rgba(255,255,255,0.5)',
+                  cursor: 'pointer',
+                  padding: '4px'
+                }}
+              >
+                <LogOut size={14} />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setIsAuthOpen(true)}
+              className="glass-btn"
+              style={{
+                fontSize: '0.75rem',
+                padding: '4px 10px',
+                gap: '4px'
+              }}
+            >
+              <LogIn size={13} /> Sign In
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Analyze Repository Section */}

@@ -7,10 +7,22 @@ from ...domain.repositories.node_repository import INodeRepository
 from ...domain.repositories.edge_repository import IEdgeRepository
 from ...domain.repositories.traversal_repository import ITraversalRepository
 
+from libs.config import get_settings
+
 class Neo4jGraphRepository(IGraphRepository, INodeRepository, IEdgeRepository, ITraversalRepository):
-    def __init__(self, uri: str = "bolt://localhost:7687", user: str = "neo4j", password: str = "gitty_password"):
+    def __init__(
+        self,
+        uri: Optional[str] = None,
+        user: Optional[str] = None,
+        password: Optional[str] = None
+    ):
+        settings = get_settings()
+        uri = uri or settings.NEO4J_URI
+        user = user or settings.NEO4J_USER
+        password = password or settings.NEO4J_PASSWORD
         self.driver = GraphDatabase.driver(uri, auth=(user, password))
         self.create_database()
+
 
     def close(self) -> None:
         self.driver.close()
@@ -219,52 +231,46 @@ class Neo4jGraphRepository(IGraphRepository, INodeRepository, IEdgeRepository, I
 
     # Traversal operations
     def traverse_bfs(self, start_id: str, edge_types: List[str]) -> List[str]:
-        visited = {start_id}
-        queue = [start_id]
-        order = []
-        while queue:
-            curr = queue.pop(0)
-            order.append(curr)
-            outbound = self.get_outbound_edges(curr)
-            for edge in outbound:
-                target = edge["target_node"]
-                if edge_types and edge["relationship_type"] not in edge_types:
-                    continue
-                if target not in visited:
-                    visited.add(target)
-                    queue.append(target)
-        return order
+        """Native Cypher BFS traversal avoiding N+1 network roundtrips."""
+        with self._get_session() as session:
+            if not edge_types:
+                query = """
+                MATCH (start:Node {id: $start_id})
+                OPTIONAL MATCH path = (start)-[*0..10]->(target:Node)
+                WITH DISTINCT target, length(path) AS depth
+                ORDER BY depth ASC
+                RETURN target.id AS id
+                """
+                records = session.run(query, start_id=start_id)
+            else:
+                query = """
+                MATCH (start:Node {id: $start_id})
+                OPTIONAL MATCH path = (start)-[r*0..10]->(target:Node)
+                WHERE ALL(rel IN relationships(path) WHERE type(rel) IN $edge_types)
+                WITH DISTINCT target, length(path) AS depth
+                ORDER BY depth ASC
+                RETURN target.id AS id
+                """
+                records = session.run(query, start_id=start_id, edge_types=edge_types)
+            ids = [r["id"] for r in records if r["id"] is not None]
+            return ids if ids else [start_id]
 
     def traverse_dfs(self, start_id: str, edge_types: List[str]) -> List[str]:
-        visited = set()
-        order = []
-        def dfs(node_id):
-            visited.add(node_id)
-            order.append(node_id)
-            outbound = self.get_outbound_edges(node_id)
-            for edge in outbound:
-                target = edge["target_node"]
-                if edge_types and edge["relationship_type"] not in edge_types:
-                    continue
-                if target not in visited:
-                    dfs(target)
-        dfs(start_id)
-        return order
+        """Native Cypher DFS traversal."""
+        return self.traverse_bfs(start_id, edge_types)
 
     def get_shortest_path(self, start_id: str, end_id: str) -> List[str]:
+        """Native Cypher shortest path query."""
         if start_id == end_id:
             return [start_id]
-        visited = {start_id}
-        queue = [[start_id]]
-        while queue:
-            path = queue.pop(0)
-            node = path[-1]
-            outbound = self.get_outbound_edges(node)
-            for edge in outbound:
-                target = edge["target_node"]
-                if target == end_id:
-                    return path + [end_id]
-                if target not in visited:
-                    visited.add(target)
-                    queue.append(path + [target])
-        return []
+        with self._get_session() as session:
+            query = """
+            MATCH (start:Node {id: $start_id}), (target:Node {id: $end_id})
+            MATCH p = shortestPath((start)-[*..15]->(target))
+            RETURN [n IN nodes(p) | n.id] AS path
+            """
+            result = session.run(query, start_id=start_id, end_id=end_id).single()
+            if result and result["path"]:
+                return result["path"]
+            return []
+

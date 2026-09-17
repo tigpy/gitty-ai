@@ -9,9 +9,16 @@ __pycache__/
 gitty_graph.db*
 data/
 .env
+.env.*
+*.key
+*.pem
+credentials.json
 .gitty_graph.db.swp
 dist/
 build/
 .coverage
 htmlcov/
 *.log
+GITTY-AI/
+*.db
+*.sqlite

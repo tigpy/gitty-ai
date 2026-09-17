@@ -46,23 +46,29 @@ def test_delete_repository_endpoint(mock_cleanup):
     
     mock_cleanup.assert_called_once_with("flask-a91f23de")
 
-@patch("app.api.v1.repositories.redis.Redis")
-def test_progress_stream_endpoint(mock_redis_class):
-    # Set up mock redis pub/sub
+@patch("app.api.v1.repositories.aioredis.Redis")
+def test_progress_stream_endpoint(mock_redis_class, test_user_repo):
+    from unittest.mock import AsyncMock
+    from libs.auth.security import create_access_token
+
+    repo_id = "flask-a91f23de"
+    test_user_repo.assign_repository_owner("test-user-id", repo_id)
+    token = create_access_token("test-user-id", "testuser")
+
+    # Set up mock async redis pub/sub
     mock_redis = MagicMock()
     mock_pubsub = MagicMock()
-    mock_redis_class.return_value = mock_redis
-    mock_redis.pubsub.return_value = mock_pubsub
-    
-    # Queue up a progress log message then None to exit loop
-    mock_pubsub.get_message.side_effect = [
+    mock_pubsub.subscribe = AsyncMock()
+    mock_pubsub.get_message = AsyncMock(side_effect=[
         {"data": b'{"status": "processing", "message": "Cloning repository..."}'},
         {"data": b'{"status": "completed", "message": "Completed."}'},
         None
-    ]
+    ])
+    mock_redis.pubsub.return_value = mock_pubsub
+    mock_redis_class.return_value = mock_redis
     
     client = TestClient(app)
-    response = client.get("/api/v1/repositories/flask-a91f23de/progress")
+    response = client.get(f"/api/v1/repositories/{repo_id}/progress?token={token}")
     assert response.status_code == 200
     assert "text/event-stream" in response.headers["content-type"]
     

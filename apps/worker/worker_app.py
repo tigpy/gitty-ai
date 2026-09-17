@@ -57,31 +57,39 @@ app.conf.update(
     enable_utc=True,
 )
 
+from services.graph_service.application.repository_cleanup_service import RepositoryCleanupService
+
 @app.task(name="gitty.tasks.health_check")
 def worker_health_check():
     logger.info("Executing worker health check task")
     return {"status": "ok", "worker": "gitty-worker"}
 
-@app.task(name="gitty.tasks.index_repository")
-def index_repository(repository_id: str, repo_url: str):
+@app.task(
+    name="gitty.tasks.index_repository",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=15,
+    time_limit=600
+)
+def index_repository(self, repository_id: str, repo_url: str):
     from libs.shared_kernel.validation import REPO_ID_REGEX
     if not repository_id or not REPO_ID_REGEX.match(repository_id):
         logger.error("Invalid repository_id format in Celery task", repository_id=repository_id)
         return {"status": "failed", "error": "Invalid repository_id format"}
         
     logger.info("Starting repository indexing task", repository_id=repository_id, url=repo_url)
-    
-    # 1. Initialize publisher
-    publisher = None
+
+    # Clean up previous partial or existing state to guarantee idempotency
     try:
-        publisher = RabbitMQPublisher(host=settings.RABBITMQ_HOST, port=settings.RABBITMQ_PORT)
+        cleanup_service = RepositoryCleanupService(settings.SQLITE_DB_PATH)
+        cleanup_service.cleanup(repository_id)
     except Exception as e:
-        logger.warning("Could not initialize RabbitMQ event publisher, continuing without event logs", error=str(e))
+        logger.warning("Pre-indexing cleanup encountered error (non-fatal)", error=str(e))
         
-    # 2. Setup paths
+    # Setup paths
     working_dir = os.path.join("data", "repos", repository_id)
     
-    # 3. Setup scanner service
+    # Setup scanner service
     scanner = GithubRepositoryScanner()
     walker = LocalFileWalker()
     detector = LanguageDetector()
@@ -92,8 +100,7 @@ def index_repository(repository_id: str, repo_url: str):
     scan_service = RepositoryScanService(
         scanner=scanner,
         discovery_service=discovery,
-        language_service=lang_service,
-        publisher=publisher
+        language_service=lang_service
     )
     
     # Run scan
@@ -106,7 +113,7 @@ def index_repository(repository_id: str, repo_url: str):
     root_path = scan_res["root_path"]
     files = scan_res["files"]
     
-    # 4. Parse files into IR Modules
+    # Parse files into IR Modules
     from libs.common.progress import publish_progress
     publish_progress(repository_id, "processing", "Parsing Python files...")
     parser_factory = ParserFactory()
@@ -118,17 +125,12 @@ def index_repository(repository_id: str, repo_url: str):
         total_files=len(files)
     )
 
-    for f in files[:20]:
-        logger.info(
-            "Discovered file",
-            path=f.get("path"),
-            language=f.get("language")
-        )
-
+    unsupported_count = 0
     for f_info in files:
         language = str(f_info.get("language", "")).lower()
 
         if language != "python":
+            unsupported_count += 1
             continue
 
         f_path = f_info["path"]
@@ -168,7 +170,6 @@ def index_repository(repository_id: str, repo_url: str):
 
                 c_copy = c.copy()
                 c_copy["methods"] = methods
-
                 classes.append(IRClass(**c_copy))
 
             functions = [
@@ -189,17 +190,7 @@ def index_repository(repository_id: str, repo_url: str):
                 functions=functions,
                 calls=calls
             )
-
             modules.append(mod)
-
-            logger.info(
-                "Parsed file successfully",
-                file=f_path,
-                classes=len(classes),
-                functions=len(functions),
-                imports=len(imports),
-                calls=len(calls)
-            )
 
         except Exception as e:
             logger.warning(
@@ -212,15 +203,17 @@ def index_repository(repository_id: str, repo_url: str):
         "Parser summary",
         repository_id=repository_id,
         files_discovered=len(files),
-        modules_created=len(modules)
+        modules_created=len(modules),
+        non_python_skipped=unsupported_count
     )
     publish_progress(repository_id, "processing", f"✓ Parsed {len(modules)} Python modules")
-    # 5. Build Graph in repository
+
+    # Build Graph in repository
     try:
         publish_progress(repository_id, "processing", "Building graph...")
         repo = get_graph_repository()
         symbol_table = SymbolTable()
-        graph_builder = GraphBuilder(repo, symbol_table, publisher=publisher)
+        graph_builder = GraphBuilder(repo, symbol_table)
         
         repo_name = os.path.basename(repo_url.rstrip("/")).replace(".git", "")
         build_res = graph_builder.build_graph(
@@ -240,15 +233,7 @@ def index_repository(repository_id: str, repo_url: str):
         logger.error("Graph build failed", repository_id=repository_id, error=str(e))
         publish_progress(repository_id, "failed", f"Graph build failed: {e}")
         return {"status": "failed", "repository_id": repository_id, "error": f"Graph build failed: {e}"}
-        
-    finally:
-        # Clean up publisher connection
-        if publisher and hasattr(publisher, "close"):
-            try:
-                publisher.close()
-            except Exception:
-                pass
-                
+
     return {
         "status": "completed",
         "repository_id": repository_id,
@@ -256,20 +241,21 @@ def index_repository(repository_id: str, repo_url: str):
         "edges_created": build_res.get("edges_created", 0)
     }
 
-@app.task(name="gitty.tasks.detect_dead_code")
-def detect_dead_code(repository_id: str):
+@app.task(
+    name="gitty.tasks.detect_dead_code",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=15,
+    time_limit=300
+)
+def detect_dead_code(self, repository_id: str):
     logger.info("Starting dead code detection task", repository_id=repository_id)
     from libs.common.progress import publish_progress
     publish_progress(repository_id, "processing", "Running dead code analysis...")
-    publisher = None
-    try:
-        publisher = RabbitMQPublisher(host=settings.RABBITMQ_HOST, port=settings.RABBITMQ_PORT)
-    except Exception as e:
-        logger.warning("Could not initialize RabbitMQ event publisher, continuing without event logs", error=str(e))
-        
+    
     try:
         repo = get_graph_repository()
-        detector = DeadCodeDetectionService(repo, publisher=publisher)
+        detector = DeadCodeDetectionService(repo)
         report = detector.run_analysis(repository_id)
         logger.info("Dead code detection completed", repository_id=repository_id, summary=report.summary, health=report.repository_health)
         publish_progress(repository_id, "processing", "✓ Dead code analysis complete")
@@ -287,46 +273,26 @@ def detect_dead_code(repository_id: str):
         logger.error("Dead code detection failed", repository_id=repository_id, error=str(e))
         publish_progress(repository_id, "failed", f"Dead code detection failed: {e}")
         return {"status": "failed", "repository_id": repository_id, "error": str(e)}
-    finally:
-        if publisher and hasattr(publisher, "close"):
-            try:
-                publisher.close()
-            except Exception:
-                pass
 
-@app.task(name="gitty.tasks.analyze_repository_security")
-def analyze_repository_security(repository_id: str):
+@app.task(
+    name="gitty.tasks.analyze_repository_security",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=15,
+    time_limit=300
+)
+def analyze_repository_security(self, repository_id: str):
     logger.info("Starting security analysis task", repository_id=repository_id)
     from libs.common.progress import publish_progress
     publish_progress(repository_id, "processing", "Running security analysis...")
-    publisher = None
-    try:
-        publisher = RabbitMQPublisher(host=settings.RABBITMQ_HOST, port=settings.RABBITMQ_PORT)
-    except Exception as e:
-        logger.warning("Could not initialize RabbitMQ event publisher, continuing without event logs", error=str(e))
 
     try:
         repo = get_graph_repository()
-        service = SecurityAnalysisService(repo, publisher=publisher)
+        service = SecurityAnalysisService(repo)
         report = service.run_security_scan(repository_id)
         logger.info("Security analysis completed", repository_id=repository_id, score=report.security_score)
         publish_progress(repository_id, "processing", "✓ Security analysis complete")
         
-        # Publish VectorIndexBuildRequestedV1
-        if publisher:
-            try:
-                from libs.events.schemas import VectorIndexBuildRequestedV1
-                import uuid
-                from datetime import datetime, timezone
-                req_event = VectorIndexBuildRequestedV1(
-                    event_id=str(uuid.uuid4()),
-                    timestamp=datetime.now(timezone.utc),
-                    repository_id=repository_id
-                )
-                publisher.publish("vector.index_build_requested", req_event)
-            except Exception as ex:
-                logger.warning("Failed to publish VectorIndexBuildRequestedV1", error=str(ex))
-
         # Trigger vector indexing asynchronously
         build_vector_index.delay(repository_id)
 
@@ -340,23 +306,18 @@ def analyze_repository_security(repository_id: str):
         logger.error("Security analysis failed", repository_id=repository_id, error=str(e))
         publish_progress(repository_id, "failed", f"Security analysis failed: {e}")
         return {"status": "failed", "repository_id": repository_id, "error": str(e)}
-    finally:
-        if publisher and hasattr(publisher, "close"):
-            try:
-                publisher.close()
-            except Exception:
-                pass
 
-@app.task(name="gitty.tasks.build_vector_index")
-def build_vector_index(repository_id: str):
+@app.task(
+    name="gitty.tasks.build_vector_index",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=15,
+    time_limit=600
+)
+def build_vector_index(self, repository_id: str):
     logger.info("Starting vector indexing task", repository_id=repository_id)
     from libs.common.progress import publish_progress
     publish_progress(repository_id, "processing", "Building vector index...")
-    publisher = None
-    try:
-        publisher = RabbitMQPublisher(host=settings.RABBITMQ_HOST, port=settings.RABBITMQ_PORT)
-    except Exception as e:
-        logger.warning("Could not initialize RabbitMQ event publisher, continuing without event logs", error=str(e))
 
     try:
         from services.vector_service.infrastructure.vector_store.qdrant_repository import QdrantRepository
@@ -378,8 +339,7 @@ def build_vector_index(repository_id: str):
             sqlite_repo=sqlite_repo,
             vector_repo=vector_repo,
             chunking_service=chunking_service,
-            embedding_service=embedding_service,
-            publisher=publisher
+            embedding_service=embedding_service
         )
 
         res = indexing_service.index_repository(repository_id)
@@ -395,15 +355,12 @@ def build_vector_index(repository_id: str):
         logger.error("Vector indexing failed", repository_id=repository_id, error=str(e))
         publish_progress(repository_id, "failed", f"Vector indexing failed: {e}")
         return {"status": "failed", "repository_id": repository_id, "error": str(e)}
-    finally:
-        if publisher and hasattr(publisher, "close"):
-            try:
-                publisher.close()
-            except Exception:
-                pass
+
+@app.task(name="gitty.tasks.worker_health_check")
+def worker_health_check():
+    return {"status": "ok", "worker": "gitty-worker"}
 
 @app.task(name="gitty.tasks.generate_embeddings")
 def generate_embeddings(repository_id: str):
-    logger.info("Starting embeddings generation task", repository_id=repository_id)
-    # Placeholder for Phase 5 embedding
     return {"status": "completed", "repository_id": repository_id}
+

@@ -30,25 +30,21 @@ services:
       - neo4j
       - qdrant
 
-  auth-service:
-    image: gitty-auth-service:latest
-    container_name: gitty-auth-service
+  frontend:
+    image: gitty-frontend:latest
+    container_name: gitty-frontend
     restart: always
     ports:
-      - "3000:3000"
+      - "80:80"
     environment:
-      - NODE_ENV=production
-      - PORT=3000
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - LOG_LEVEL=info
+      - VITE_API_URL=/api/v1
     deploy:
       resources:
         limits:
           cpus: '1.0'
-          memory: 2G
+          memory: 1G
     depends_on:
-      - redis
+      - api-gateway
 
   worker:
     image: gitty-worker:latest

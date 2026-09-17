@@ -32,6 +32,14 @@ class SystemSettings(BaseSettings):
     CHAT_HISTORY_LIMIT: int = 10
 
 
+    # Authentication & JWT
+    JWT_SECRET_KEY: str = "gitty-insecure-dev-secret-change-in-production-32bytesmin"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
+
+    # CORS Configuration
+    CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
+
     # Architecture Smell Thresholds
     GITTY_SMELL_FAN_IN_THRESHOLD: int = 10
     GITTY_SMELL_FAN_OUT_THRESHOLD: int = 10
@@ -42,6 +50,15 @@ class SystemSettings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore"
     )
+
+    def validate_production_security(self) -> None:
+        """Enforces mandatory security configuration in production environments."""
+        if self.ENV.lower() == "production":
+            if self.JWT_SECRET_KEY == "gitty-insecure-dev-secret-change-in-production-32bytesmin" or len(self.JWT_SECRET_KEY) < 32:
+                raise ValueError("SECURITY ERROR: In production, JWT_SECRET_KEY must be a unique, secure secret with >= 32 characters.")
+            if self.NEO4J_PASSWORD == "gitty_password":
+                raise ValueError("SECURITY ERROR: In production, default NEO4J_PASSWORD must be replaced.")
+
 
 _settings: Optional[SystemSettings] = None
 

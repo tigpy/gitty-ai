@@ -129,13 +129,26 @@ class SQLiteGraphRepository(IGraphRepository, INodeRepository, IEdgeRepository, 
             return [dict(r) for r in cursor.fetchall()]
 
     def delete_repository(self, repo_id: str) -> None:
+        """
+        Safely deletes repository and all associated nodes/edges.
+        Batches deletions into chunks of 400 to prevent SQLite variable limit exhaustion.
+        """
         with self._get_connection() as conn:
             cursor = conn.cursor()
             node_ids = self.traverse_bfs(repo_id, edge_types=[])
             if node_ids:
-                placeholders = ",".join("?" for _ in node_ids)
-                cursor.execute(f"DELETE FROM relationships WHERE source_node IN ({placeholders}) OR target_node IN ({placeholders})", node_ids + node_ids)
-                cursor.execute(f"DELETE FROM nodes WHERE id IN ({placeholders})", node_ids)
+                batch_size = 400
+                for i in range(0, len(node_ids), batch_size):
+                    batch = node_ids[i:i + batch_size]
+                    placeholders = ",".join("?" for _ in batch)
+                    cursor.execute(
+                        f"DELETE FROM relationships WHERE source_node IN ({placeholders}) OR target_node IN ({placeholders})",
+                        batch + batch
+                    )
+                    cursor.execute(
+                        f"DELETE FROM nodes WHERE id IN ({placeholders})",
+                        batch
+                    )
             cursor.execute("DELETE FROM repositories WHERE id = ?", (repo_id,))
             conn.commit()
 
@@ -158,6 +171,34 @@ class SQLiteGraphRepository(IGraphRepository, INodeRepository, IEdgeRepository, 
                     path=excluded.path,
                     metadata=excluded.metadata
             """, (node_id, label, name, path, metadata_json))
+            conn.commit()
+
+    def add_nodes_batch(self, nodes_data: List[Any]) -> None:
+        """
+        Batches multiple node insertions inside a single transaction using executemany.
+        nodes_data: List of (node_id, label, properties_dict)
+        """
+        if not nodes_data:
+            return
+
+        records = []
+        for node_id, label, properties in nodes_data:
+            name = properties.get("name", "")
+            path = properties.get("path", "")
+            metadata_dict = {k: v for k, v in properties.items() if k not in ("name", "path")}
+            records.append((node_id, label, name, path, json.dumps(metadata_dict)))
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.executemany("""
+                INSERT INTO nodes (id, type, name, path, metadata)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    type=excluded.type,
+                    name=excluded.name,
+                    path=excluded.path,
+                    metadata=excluded.metadata
+            """, records)
             conn.commit()
 
     def get_node(self, node_id: str) -> Optional[Dict[str, Any]]:
@@ -194,13 +235,28 @@ class SQLiteGraphRepository(IGraphRepository, INodeRepository, IEdgeRepository, 
             return res
 
     def get_nodes_by_repository(self, repo_id: str) -> List[Dict[str, Any]]:
+        """
+        Retrieves all nodes for a repository in batched SQL queries, eliminating N+1 performance bottlenecks.
+        """
         node_ids = self.traverse_bfs(repo_id, edge_types=[])
+        if not node_ids:
+            return []
+
         res = []
-        for nid in node_ids:
-            node = self.get_node(nid)
-            if node:
-                res.append(node)
+        batch_size = 400
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            for i in range(0, len(node_ids), batch_size):
+                batch = node_ids[i:i + batch_size]
+                placeholders = ",".join("?" for _ in batch)
+                cursor.execute(f"SELECT * FROM nodes WHERE id IN ({placeholders})", batch)
+                for r in cursor.fetchall():
+                    res_dict = dict(r)
+                    meta = json.loads(res_dict["metadata"] or "{}")
+                    res_dict.update(meta)
+                    res.append(res_dict)
         return res
+
 
     # Edge operations
     def add_edge(self, from_id: str, to_id: str, edge_type: str, properties: Dict[str, Any]) -> None:
@@ -216,6 +272,30 @@ class SQLiteGraphRepository(IGraphRepository, INodeRepository, IEdgeRepository, 
                     metadata=excluded.metadata
             """, (edge_id, from_id, to_id, edge_type, metadata_json))
             conn.commit()
+
+    def add_edges_batch(self, edges_data: List[Any]) -> None:
+        """
+        Batches multiple edge insertions inside a single transaction using executemany.
+        edges_data: List of (from_id, to_id, edge_type, properties_dict)
+        """
+        if not edges_data:
+            return
+
+        records = []
+        for from_id, to_id, edge_type, properties in edges_data:
+            edge_id = f"{from_id}->{edge_type}->{to_id}"
+            records.append((edge_id, from_id, to_id, edge_type, json.dumps(properties or {})))
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.executemany("""
+                INSERT INTO relationships (id, source_node, target_node, relationship_type, metadata)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    metadata=excluded.metadata
+            """, records)
+            conn.commit()
+
 
     def remove_edge(self, from_id: str, to_id: str, edge_type: str) -> None:
         edge_id = f"{from_id}->{edge_type}->{to_id}"

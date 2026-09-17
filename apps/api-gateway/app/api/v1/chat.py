@@ -1,7 +1,10 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel
 from typing import List, Optional
 from libs.shared_kernel.validation import validate_repository_id
+from libs.auth.models import User
+from libs.auth.dependencies import get_current_user, require_session_owner
+from libs.auth.repository import get_user_repository, UserRepository
 from services.rag_service.application.services.chat_service import ChatService
 from services.rag_service.infrastructure.persistence.sqlite_session_repository import SQLiteChatSessionRepository
 from services.rag_service.domain.entities.chat_session import ChatSession, ChatMessage
@@ -39,31 +42,82 @@ class SendMessageRequest(BaseModel):
     min_score: float = 0.5
 
 @router.post("/sessions", response_model=ChatSession)
-def create_session(request: CreateSessionRequest, service: ChatService = Depends(get_chat_service)):
+def create_session(
+    request: CreateSessionRequest,
+    current_user: User = Depends(get_current_user),
+    service: ChatService = Depends(get_chat_service),
+    user_repo: UserRepository = Depends(get_user_repository)
+):
     validate_repository_id(request.repository_id)
+    if not user_repo.is_repository_owner(current_user.id, request.repository_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Forbidden: You do not have access to repository '{request.repository_id}'."
+        )
+
     try:
-        return service.create_session(request.repository_id)
+        session = service.create_session(request.repository_id)
+        user_repo.assign_session_owner(current_user.id, session.session_id)
+        return session
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/sessions/{session_id}", response_model=ChatSession)
-def get_session(session_id: str, service: ChatService = Depends(get_chat_service)):
+def get_session(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    service: ChatService = Depends(get_chat_service),
+    user_repo: UserRepository = Depends(get_user_repository)
+):
+    if not user_repo.is_session_owner(current_user.id, session_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: You do not have permission to view this chat session."
+        )
+
     session = service.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Chat session not found")
     return session
 
 @router.get("/sessions", response_model=List[ChatSession])
-def list_sessions(repository_id: Optional[str] = None, service: ChatService = Depends(get_chat_service)):
+def list_sessions(
+    repository_id: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    service: ChatService = Depends(get_chat_service),
+    user_repo: UserRepository = Depends(get_user_repository)
+):
     if repository_id:
         validate_repository_id(repository_id)
+        if not user_repo.is_repository_owner(current_user.id, repository_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: You do not have access to this repository's sessions."
+            )
+
     try:
-        return service.list_sessions(repository_id)
+        all_sessions = service.list_sessions(repository_id)
+        # Filter to sessions owned by the authenticated user
+        return [s for s in all_sessions if user_repo.is_session_owner(current_user.id, s.session_id)]
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/sessions/{session_id}/messages", response_model=ChatMessage)
-def send_message(session_id: str, request: SendMessageRequest, service: ChatService = Depends(get_chat_service)):
+def send_message(
+    session_id: str,
+    request: SendMessageRequest,
+    current_user: User = Depends(get_current_user),
+    service: ChatService = Depends(get_chat_service),
+    user_repo: UserRepository = Depends(get_user_repository)
+):
+    if not user_repo.is_session_owner(current_user.id, session_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: You do not have permission to send messages in this session."
+        )
+
     try:
         return service.send_message(
             session_id=session_id,
@@ -75,18 +129,26 @@ def send_message(session_id: str, request: SendMessageRequest, service: ChatServ
             min_score=request.min_score
         )
     except ValueError as ve:
-        import traceback
-        traceback.print_exc()
         raise HTTPException(status_code=404, detail=str(ve))
     except Exception as e:
-        import traceback
-        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/sessions/{session_id}")
-def delete_session(session_id: str, service: ChatService = Depends(get_chat_service)):
+def delete_session(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    service: ChatService = Depends(get_chat_service),
+    user_repo: UserRepository = Depends(get_user_repository)
+):
+    if not user_repo.is_session_owner(current_user.id, session_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: You do not have permission to delete this session."
+        )
+
     try:
         service.delete_session(session_id)
         return {"status": "success", "message": "Session deleted"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+

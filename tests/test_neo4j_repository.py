@@ -195,29 +195,31 @@ def test_neo4j_traversals(mock_db):
     mock_db.driver.return_value = mock_driver
     repo = Neo4jGraphRepository()
     
-    # Mock get_outbound_edges for n1 and n2
-    # n1 -> n2, n2 -> n3
-    m1 = [
-        {"target_node": "n2", "relationship_type": "CONTAINS"}
-    ]
-    m2 = [
-        {"target_node": "n3", "relationship_type": "CONTAINS"}
-    ]
+    session = mock_driver.session.return_value
     
-    with patch.object(repo, "get_outbound_edges") as mock_out:
-        def side_effect(node_id):
-            if node_id == "n1":
-                return m1
-            elif node_id == "n2":
-                return m2
-            return []
-        mock_out.side_effect = side_effect
-        
-        bfs = repo.traverse_bfs("n1", edge_types=["CONTAINS"])
-        assert bfs == ["n1", "n2", "n3"]
-        
-        dfs = repo.traverse_dfs("n1", edge_types=["CONTAINS"])
-        assert dfs == ["n1", "n2", "n3"]
-        
-        path = repo.get_shortest_path("n1", "n3")
-        assert path == ["n1", "n2", "n3"]
+    # Mock records for traverse_bfs
+    session.run.return_value = [
+        {"id": "n1"},
+        {"id": "n2"},
+        {"id": "n3"}
+    ]
+    bfs = repo.traverse_bfs("n1", edge_types=["CONTAINS"])
+    assert bfs == ["n1", "n2", "n3"]
+    
+    # Mock records for traverse_dfs
+    session.run.return_value = [
+        {"id": "n1"},
+        {"id": "n2"},
+        {"id": "n3"}
+    ]
+    dfs = repo.traverse_dfs("n1", edge_types=["CONTAINS"])
+    assert dfs == ["n1", "n2", "n3"]
+    
+    # Mock records for get_shortest_path
+    mock_record = {"path": ["n1", "n2", "n3"]}
+    mock_res = MagicMock()
+    mock_res.single.return_value = mock_record
+    session.run.return_value = mock_res
+    
+    path = repo.get_shortest_path("n1", "n3")
+    assert path == ["n1", "n2", "n3"]

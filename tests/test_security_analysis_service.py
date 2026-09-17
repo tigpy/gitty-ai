@@ -19,6 +19,7 @@ class MockEventBus:
 from typing import Any
 
 def test_dependency_risk_rule():
+    from unittest.mock import patch
     rule = DependencyRiskRule()
     file_path = "requirements.txt"
     
@@ -27,9 +28,10 @@ def test_dependency_risk_rule():
 requests==2.28.1
 pyyaml<5.4
 urllib3>=1.26.0
-Django==4.2.1 # secure
+Django==4.2.1 # secure in local DB
 """
-    findings = rule.evaluate(ast.parse(""), content, file_path)
+    with patch("services.security_service.infrastructure.vulnerability_db.VulnerabilityDB.query_osv", return_value=None):
+        findings = rule.evaluate(ast.parse(""), content, file_path)
     assert len(findings) == 3
     
     finding_packages = {f.code_snippet for f in findings}

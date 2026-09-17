@@ -51,33 +51,33 @@ def calculate(a, b):
     # Setup SQLite Graph Repository mock
     repo_id = "test-vector-worker-repo"
     
-    with patch("apps.worker.worker_app.SQLiteGraphRepository") as mock_repo_cls:
-        mock_repo = MagicMock()
-        mock_repo_cls.return_value = mock_repo
-        
-        mock_repo.get_nodes_by_repository.return_value = [
-            {"type": "Repository", "id": repo_id, "name": "mock_vector_repo", "path": str(repo_dir)},
-            {"type": "File", "id": "file_node_1", "name": "app.py", "path": "app.py"},
-            {"type": "Function", "id": "func_node_1", "name": "calculate", "path": "app.py", "metadata": {"start_line": 2, "end_line": 5}},
-            {"type": "File", "id": "file_node_2", "name": "README.md", "path": "README.md"}
-        ]
-        
-        try:
-            # Execute Celery worker task
-            res = build_vector_index(repo_id)
+    with patch("libs.common.progress.publish_progress") as mock_progress:
+        with patch("apps.worker.worker_app.SQLiteGraphRepository") as mock_repo_cls:
+            mock_repo = MagicMock()
+            mock_repo_cls.return_value = mock_repo
             
-            assert res["status"] == "completed"
-            assert res["repository_id"] == repo_id
+            mock_repo.get_nodes_by_repository.return_value = [
+                {"type": "Repository", "id": repo_id, "name": "mock_vector_repo", "path": str(repo_dir)},
+                {"type": "File", "id": "file_node_1", "name": "app.py", "path": "app.py"},
+                {"type": "Function", "id": "func_node_1", "name": "calculate", "path": "app.py", "metadata": {"start_line": 2, "end_line": 5}},
+                {"type": "File", "id": "file_node_2", "name": "README.md", "path": "README.md"}
+            ]
             
-            # The indexing stats returned should contain function, file, documentation, and security chunks
-            # 2 files (app.py, README.md), 1 function (calculate), 1 documentation (README.md), 1 security (eval issue)
-            assert res["vector_count"] == 5
-            
-            # Verify events published on rabbitmq publisher
-            published_topics = [args[0] for args, kwargs in mock_publisher.publish.call_args_list]
-            assert "vector.embedding_created" in published_topics
-            assert "vector.index_built" in published_topics
-            
-        finally:
-            # Restore configuration
-            settings.SQLITE_DB_PATH = original_db
+            try:
+                # Execute Celery worker task
+                res = build_vector_index(repo_id)
+                
+                assert res["status"] == "completed"
+                assert res["repository_id"] == repo_id
+                
+                # The indexing stats returned should contain function, file, documentation, and security chunks
+                # 2 files (app.py, README.md), 1 function (calculate), 1 documentation (README.md), 1 security (eval issue)
+                assert res["vector_count"] == 5
+                
+                # Verify progress publisher was notified
+                assert mock_progress.called
+                statuses = [args[1] for args, _ in mock_progress.call_args_list]
+                assert "completed" in statuses
+            finally:
+                # Restore configuration
+                settings.SQLITE_DB_PATH = original_db

@@ -28,36 +28,47 @@ def test_prompt_builder_structure():
     
     prompt = builder.build_rag_prompt("How to login?", chunks)
     
-    assert "=== Repository Context ===" in prompt
+    assert "=== Repository Context (Untrusted Data) ===" in prompt
+    assert "<repository_untrusted_context>" in prompt
+    assert "</repository_untrusted_context>" in prompt
     assert "=== User Question ===" in prompt
     assert "=== Instructions ===" in prompt
     
-    assert "[Chunk 1] File: auth.py (Symbol: login), Lines: 1-2, Type: FUNCTION" in prompt
+    assert '<code_chunk index="1" file="auth.py" lines="1-2" type="FUNCTION" symbol="login">' in prompt
     assert "def login():" in prompt
     
-    assert "[Chunk 2] File: README.md, Lines: N/A, Type: DOCUMENTATION" in prompt
+    assert '<code_chunk index="2" file="README.md" lines="N/A" type="DOCUMENTATION">' in prompt
     assert "# API documentation" in prompt
     
     assert "How to login?" in prompt
     assert builder.DEFAULT_SYSTEM_PROMPT is not None
 
 def test_prompt_builder_context_truncation():
-    # Force tiny character limit
-    builder = PromptBuilder(max_context_chars=30)
+    # Character limit sufficient for only first chunk
+    builder = PromptBuilder(max_context_chars=120)
     
     chunks = [
         Chunk(
             id="c1",
-            text="this is a very long text snippet that will definitely exceed thirty characters limit",
+            text="chunk one content",
             chunk_type="FILE",
             metadata={"file_path": "a.py"},
             content_hash="h1",
+            version=1
+        ),
+        Chunk(
+            id="c2",
+            text="chunk two should be excluded due to budget limit",
+            chunk_type="FILE",
+            metadata={"file_path": "b.py"},
+            content_hash="h2",
             version=1
         )
     ]
     
     prompt = builder.build_rag_prompt("query", chunks)
     
-    # Extract the context section from the structured prompt
-    assert "[Context Truncated for Limit]" in prompt
-    # The actual context should be capped close to 30 chars (+ extra label text)
+    # First chunk is included
+    assert "chunk one content" in prompt
+    # Second chunk exceeded the budget and was omitted to prevent broken/cut-off syntax
+    assert "chunk two should be excluded" not in prompt

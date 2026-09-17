@@ -27,5 +27,7 @@ def test_parser_factory_not_implemented_parsers():
     factory = ParserFactory()
     for lang in ["java", "javascript", "typescript"]:
         parser = factory.get_parser(lang)
-        with pytest.raises(NotImplementedError):
-            parser.parse_file("some content")
+        result = parser.parse_file("some content", file_path=f"test.{lang}")
+        assert result.get("unsupported") is True
+        assert len(result.get("classes", [])) == 0
+        assert len(result.get("functions", [])) == 0

@@ -33,25 +33,17 @@ services:
       qdrant:
         condition: service_healthy
 
-  auth-service:
+  frontend:
     build:
       context: ../../
-      dockerfile: infrastructure/docker/auth-service.Dockerfile
-    container_name: gitty-auth-service
+      dockerfile: infrastructure/docker/frontend.Dockerfile
+    container_name: gitty-frontend
     ports:
-      - "3000:3000"
+      - "5173:80"
     environment:
-      - NODE_ENV=development
-      - PORT=3000
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - JWT_SECRET=dev_jwt_secret_must_be_long_and_secure
-      - LOG_LEVEL=debug
-    volumes:
-      - ../../apps/auth-service:/app/apps/auth-service
+      - VITE_API_URL=http://localhost:8000/api/v1
     depends_on:
-      redis:
-        condition: service_healthy
+      - api-gateway
 
   worker:
     build:

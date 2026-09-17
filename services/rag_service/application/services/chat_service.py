@@ -186,20 +186,32 @@ class ChatService:
             repository_id=session.repository_id
         )
 
-        # 5. Generate Answer via LLM
-        answer = self.llm_provider.generate(
-            prompt=prompt,
-            system_prompt=self.prompt_builder.DEFAULT_SYSTEM_PROMPT
-        )
+        # 5. Generate Answer via LLM with graceful error recovery
+        try:
+            answer = self.llm_provider.generate(
+                prompt=prompt,
+                system_prompt=self.prompt_builder.DEFAULT_SYSTEM_PROMPT
+            )
+        except Exception as e:
+            error_msg = str(e)
+            if "Connection refused" in error_msg or "Failed to establish" in error_msg or "11434" in error_msg:
+                answer = (
+                    "⚠️ The AI inference engine (Ollama/LLM) is currently unreachable. "
+                    "Please ensure Ollama is running (`ollama serve`) or configure OPENAI_API_KEY."
+                )
+            else:
+                answer = f"⚠️ AI generation error: {error_msg}"
 
         latency_ms = int((time.perf_counter() - start_time) * 1000)
 
-        # 6. Map retrieved chunks to citations DTO
+        # 6. Map retrieved chunks to citations DTO using genuine vector similarity scores
         citations = []
         for c in retrieved_chunks:
             meta = c.metadata or {}
+            raw_score = meta.get("_score", 0.85)
+            score = round(float(raw_score), 4) if isinstance(raw_score, (int, float)) else 0.85
             citations.append(RetrievedChunk(
-                score=0.99,
+                score=score,
                 file_path=meta.get("file_path", "unknown"),
                 symbol_name=meta.get("symbol_name"),
                 start_line=c.start_line,
@@ -214,6 +226,7 @@ class ChatService:
             "latency_ms": latency_ms,
             "prompt_version": self.prompt_builder.PROMPT_VERSION
         }
+
 
         # 8. Save assistant message
         assistant_message_id = str(uuid.uuid4())

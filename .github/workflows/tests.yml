@@ -29,13 +29,10 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '18'
+          node-version: '20'
 
-      - name: Run Node.js tests
+      - name: Run Frontend typecheck and build
         run: |
-          cd apps/auth-service
-          if [ -f package.json ]; then
-            npm install
-            npm test --if-present
-          fi
-        continue-on-error: true
+          cd apps/frontend
+          npm ci || npm install
+          npm run build
