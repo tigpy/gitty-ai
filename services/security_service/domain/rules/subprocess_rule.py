@@ -32,6 +32,32 @@ class SubprocessRule(SecurityRule):
         findings = []
         lines = file_content.splitlines()
 
+        if file_path.lower().endswith((".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs")):
+            import re
+            pattern = re.compile(r'\b(child_process\.(exec|execSync)|exec\s*\(|execSync\s*\()')
+            for idx, line in enumerate(lines, 1):
+                clean_line = line.strip()
+                if clean_line.startswith("//") or clean_line.startswith("/*") or clean_line.startswith("*"):
+                    continue
+                match = pattern.search(line)
+                if match:
+                    func_name = match.group(1).split("(")[0].strip()
+                    finding_id = hashlib.sha256(f"{file_path}:{idx}:{self.id}:{func_name}".encode()).hexdigest()
+                    findings.append(SecurityFinding(
+                        id=finding_id,
+                        rule_id=self.id,
+                        severity=self.severity,
+                        cwe_id=self.cwe_id,
+                        owasp_category=self.owasp_category,
+                        confidence="HIGH",
+                        file_path=file_path,
+                        line_number=idx,
+                        code_snippet=clean_line,
+                        description=f"Potential command injection via '{func_name}()'.",
+                        recommendation=f"Avoid passing unsanitized strings to shell execution functions. Use 'execFile' or 'spawn' with explicit arguments array."
+                    ))
+            return findings
+
         for node in ast.walk(tree):
             if isinstance(node, ast.Call):
                 func_name = None

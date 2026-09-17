@@ -18,7 +18,39 @@ ENTRYPOINT_FILES = {
     "wsgi.py",
     "asgi.py",
     "cli.py",
-    "run.py"
+    "run.py",
+    "index.ts",
+    "index.tsx",
+    "index.js",
+    "index.jsx",
+    "index.mjs",
+    "main.ts",
+    "main.tsx",
+    "main.js",
+    "main.jsx",
+    "App.tsx",
+    "App.jsx",
+    "App.js",
+    "App.ts",
+    "app.tsx",
+    "app.jsx",
+    "app.js",
+    "app.ts",
+    "page.tsx",
+    "page.jsx",
+    "page.js",
+    "layout.tsx",
+    "layout.jsx",
+    "layout.js",
+    "route.ts",
+    "route.js",
+    "server.ts",
+    "server.js",
+    "vite.config.ts",
+    "vite.config.js",
+    "next.config.js",
+    "next.config.mjs",
+    "next.config.ts"
 }
 
 DUNDER_METHODS = {
@@ -35,7 +67,8 @@ DUNDER_METHODS = {
     "__call__",
     "__enter__",
     "__exit__",
-    "__new__"
+    "__new__",
+    "constructor"
 }
 
 EXCLUDED_DECORATOR_SUBSTRINGS = {
@@ -126,6 +159,13 @@ class DeadCodeDetectionService:
             if func_name.startswith("test_"):
                 continue
 
+            # Skip React components and hooks in JSX/TSX files to avoid false positives
+            if path.endswith((".tsx", ".jsx", ".ts", ".js")):
+                if func_name.startswith("use") and len(func_name) > 3 and func_name[3].isupper():
+                    continue
+                if path.endswith((".tsx", ".jsx")) and func_name and func_name[0].isupper():
+                    continue
+
             # Skip methods (functions inside classes)
             is_method = func.get("metadata", {}).get("is_method", False) or func.get("is_method", False)
             if is_method:
@@ -193,11 +233,13 @@ class DeadCodeDetectionService:
             path = f.get("path", "")
             file_name = f.get("name", "")
 
-            if file_name in ENTRYPOINT_FILES:
+            base_name = os.path.basename(path)
+            if file_name in ENTRYPOINT_FILES or base_name in ENTRYPOINT_FILES:
                 continue
 
             # Check if this is a test file
-            if file_name.startswith("test_") or file_name.endswith("_test.py") or "tests/" in path or "tests\\" in path:
+            norm_path = path.replace("\\", "/")
+            if file_name.startswith("test_") or file_name.endswith(("_test.py", ".test.ts", ".test.tsx", ".test.js", ".spec.ts", ".spec.tsx", ".spec.js")) or "tests/" in norm_path or "__tests__/" in norm_path:
                 continue
 
             if len(inbound_deps.get(fid, set())) == 0:

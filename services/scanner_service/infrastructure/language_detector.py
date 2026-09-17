@@ -7,9 +7,13 @@ class LanguageDetector(ILanguageDetector):
             ".py": "python",
             ".java": "java",
             ".js": "javascript",
+            ".mjs": "javascript",
+            ".cjs": "javascript",
+            ".jsx": "javascript",
             ".ts": "typescript",
             ".tsx": "typescript",
-            ".jsx": "javascript"
+            ".mts": "typescript",
+            ".cts": "typescript"
         }
 
     def detect_language(self, file_path: str) -> str:

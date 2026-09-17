@@ -1,5 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useImperativeHandle, forwardRef } from 'react';
 import type { GraphNode, GraphEdge } from '../../types';
+
+export interface GraphCanvasRef {
+  zoomIn: () => void;
+  zoomOut: () => void;
+  resetView: () => void;
+}
 
 interface GraphCanvasProps {
   nodes: GraphNode[];
@@ -25,7 +31,7 @@ interface SimNode extends GraphNode {
   fy?: number;
 }
 
-export const GraphCanvas: React.FC<GraphCanvasProps> = ({
+export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({
   nodes,
   edges,
   selectedNode,
@@ -33,7 +39,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   onExpandNode,
   overlays,
   highlightedNodeId,
-}) => {
+}, ref) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   
   // Transform nodes to include simulation coordinates
@@ -42,6 +48,23 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   // Viewport states for zoom & pan
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
+
+  useImperativeHandle(ref, () => ({
+    zoomIn: () => {
+      setZoom((z) => Math.min(z * 1.25, 4));
+    },
+    zoomOut: () => {
+      setZoom((z) => Math.max(z / 1.25, 0.15));
+    },
+    resetView: () => {
+      setZoom(1);
+      if (canvasRef.current) {
+        setPan({ x: canvasRef.current.width / 2, y: canvasRef.current.height / 2 });
+      } else {
+        setPan({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
+      }
+    }
+  }));
   const isDraggingViewportRef = useRef(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
   
@@ -115,10 +138,16 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         }
       }
 
+      // Build O(1) lookup map for fast edge access
+      const nodeMap = new Map<string, SimNode>();
+      for (let i = 0; i < simNodes.length; i++) {
+        nodeMap.set(simNodes[i].id, simNodes[i]);
+      }
+
       // 2. Link Spring forces
       edges.forEach((edge) => {
-        const sNode = simNodes.find(n => n.id === edge.source);
-        const tNode = simNodes.find(n => n.id === edge.target);
+        const sNode = nodeMap.get(edge.source);
+        const tNode = nodeMap.get(edge.target);
         
         if (sNode && tNode) {
           const dx = tNode.x - sNode.x;
@@ -162,12 +191,12 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       });
 
       // Render Graph on Canvas
-      renderGraph();
+      renderGraph(nodeMap);
 
       animationId = requestAnimationFrame(updatePhysics);
     };
 
-    const renderGraph = () => {
+    const renderGraph = (nodeMap: Map<string, SimNode>) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
       const ctx = canvas.getContext('2d');
@@ -183,8 +212,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
       // Draw Edges
       edges.forEach((edge) => {
-        const sNode = simNodes.find(n => n.id === edge.source);
-        const tNode = simNodes.find(n => n.id === edge.target);
+        const sNode = nodeMap.get(edge.source);
+        const tNode = nodeMap.get(edge.target);
         
         if (sNode && tNode) {
           ctx.beginPath();
@@ -312,7 +341,9 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       case 'FILE': return 12;
       case 'CLASS': return 8;
       case 'FUNCTION': return 6;
-      default: return 7;
+      case 'IMPORT': return 5;
+      case 'CALL': return 4;
+      default: return 6;
     }
   };
 
@@ -322,6 +353,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       case 'FILE': return '#2563eb';       // Blue
       case 'CLASS': return '#0891b2';      // Cyan
       case 'FUNCTION': return '#059669';   // Green
+      case 'IMPORT': return '#8b5cf6';     // Purple
+      case 'CALL': return '#f59e0b';       // Amber
       case 'SECURITY_FINDING': return '#dc2626'; // Red
       default: return '#6b7280';
     }
@@ -418,4 +451,4 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       />
     </div>
   );
-};
+});

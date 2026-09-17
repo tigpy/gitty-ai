@@ -126,7 +126,7 @@ def index_repository(self, repository_id: str, repo_url: str):
     for f_info in files:
         language = str(f_info.get("language", "")).lower()
 
-        if language != "python":
+        if language not in parser_factory.supported_languages:
             unsupported_count += 1
             continue
 
@@ -147,11 +147,11 @@ def index_repository(self, repository_id: str, repo_url: str):
             continue
 
         try:
-            with open(abs_path, "r", encoding="utf-8") as f:
+            with open(abs_path, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read()
 
-            python_parser = parser_factory.get_parser("python")
-            mod_data = python_parser.parse_file(content)
+            parser = parser_factory.get_parser(language)
+            mod_data = parser.parse_file(content, file_path=f_path)
 
             imports = [
                 IRImport(**imp)
@@ -181,7 +181,7 @@ def index_repository(self, repository_id: str, repo_url: str):
 
             mod = IRModule(
                 file_path=f_path,
-                language="python",
+                language=language,
                 imports=imports,
                 classes=classes,
                 functions=functions,
@@ -201,9 +201,9 @@ def index_repository(self, repository_id: str, repo_url: str):
         repository_id=repository_id,
         files_discovered=len(files),
         modules_created=len(modules),
-        non_python_skipped=unsupported_count
+        unsupported_skipped=unsupported_count
     )
-    publish_progress(repository_id, "processing", f"✓ Parsed {len(modules)} Python modules")
+    publish_progress(repository_id, "processing", f"✓ Parsed {len(modules)} code modules")
 
     # Build Graph in repository
     try:

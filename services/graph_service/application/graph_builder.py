@@ -29,21 +29,25 @@ class GraphBuilder:
         # 1. Save Repository metadata
         indexed_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         repo_hash = hashlib.sha256(f"{repo_name}:{repo_path}:{len(modules)}".encode()).hexdigest()
+        languages = [m.language for m in modules if m.language]
+        primary_lang = max(set(languages), key=languages.count) if languages else "python"
         self.repository.save_repository(
-            repo_id, repo_name, repo_path, "python", indexed_at, repo_hash
+            repo_id, repo_name, repo_path, primary_lang, indexed_at, repo_hash
         )
 
         # Build repository node
         repo_node = self.nb.build_repository_node(repo_id, repo_name, repo_path)
 
         # 2. Register Symbols in SymbolTable
+        import os
         self.symbol_table.clear()
         for mod in modules:
             file_id = self.nb.build_file_node(repo_id, mod.file_path).id
+            base_mod_path = os.path.splitext(mod.file_path)[0].replace("/", ".").replace("\\", ".")
             
             # Register top-level functions
             for func in mod.functions:
-                fully_qualified = f"{mod.file_path.replace('.py', '').replace('/', '.')}.{func.name}"
+                fully_qualified = f"{base_mod_path}.{func.name}"
                 self.symbol_table.register_symbol(func.name, fully_qualified)
                 
                 # Register node ID
@@ -52,7 +56,7 @@ class GraphBuilder:
 
             # Register classes & methods
             for cls in mod.classes:
-                class_fq = f"{mod.file_path.replace('.py', '').replace('/', '.')}.{cls.name}"
+                class_fq = f"{base_mod_path}.{cls.name}"
                 self.symbol_table.register_symbol(cls.name, class_fq)
                 class_node_id = self.nb.build_class_node(file_id, cls.name, mod.file_path).id
                 self.symbol_table.register_node_id(class_fq, class_node_id)
@@ -79,7 +83,12 @@ class GraphBuilder:
 
             # Build Import Nodes & Edges
             for imp in mod.imports:
-                imp_name = f"{imp.module}.{imp.name}" if imp.module else imp.name
+                if imp.module and (imp.module.startswith(".") or imp.module.startswith("/") or imp.module.startswith("@")):
+                    imp_name = imp.module
+                elif imp.module:
+                    imp_name = f"{imp.module}.{imp.name}"
+                else:
+                    imp_name = imp.name
                 imp_node = self.nb.build_import_node(file_node.id, imp_name, mod.file_path, {"alias": imp.alias})
                 batch_nodes.append((imp_node.id, imp_node.type, imp_node.model_dump()))
 

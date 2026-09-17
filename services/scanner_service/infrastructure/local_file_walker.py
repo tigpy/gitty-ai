@@ -7,7 +7,8 @@ from ..domain.interfaces.file_walker import IFileWalker
 class LocalFileWalker(IFileWalker):
     def __init__(self, default_ignores: List[str] = None):
         self.default_ignores = default_ignores or [
-            "node_modules", "venv", "__pycache__", "dist", "build", "target", ".git", ".pytest_cache"
+            "node_modules", "venv", ".venv", "__pycache__", "dist", "build", "target", ".git", ".pytest_cache",
+            "coverage", ".next", ".turbo", ".nuxt", ".cache"
         ]
 
     def _should_ignore(self, name: str, relative_path: str, ignore_patterns: Set[str]) -> bool:
@@ -68,7 +69,7 @@ class LocalFileWalker(IFileWalker):
             ]
 
             for filename in filenames:
-                rel_filepath = os.path.join(rel_dirpath, filename) if rel_dirpath else filename
+                rel_filepath = (os.path.join(rel_dirpath, filename) if rel_dirpath else filename).replace("\\", "/")
                 if self._should_ignore(filename, rel_filepath, ignore_patterns):
                     continue
 

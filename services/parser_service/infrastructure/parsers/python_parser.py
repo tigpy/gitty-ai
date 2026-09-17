@@ -178,7 +178,7 @@ class PythonASTVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
 class PythonParser(IParser):
-    def parse_file(self, file_content: str) -> Dict[str, Any]:
+    def parse_file(self, file_content: str, file_path: str = "", *args, **kwargs) -> Dict[str, Any]:
         """
         Parses python source code and compiles it into an IR representation.
         """

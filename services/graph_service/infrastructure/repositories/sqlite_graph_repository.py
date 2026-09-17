@@ -318,6 +318,34 @@ class SQLiteGraphRepository(IGraphRepository, INodeRepository, IEdgeRepository, 
             rows = cursor.fetchall()
             return [dict(r) for r in rows]
 
+    def get_edges_between_nodes(self, node_ids: List[str]) -> List[Dict[str, Any]]:
+        """
+        Retrieves all relationships where the source_node is within the provided node_ids.
+        Uses batched SQL queries to prevent variable limit exhaustion.
+        """
+        if not node_ids:
+            return []
+        res = []
+        batch_size = 400
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            for i in range(0, len(node_ids), batch_size):
+                batch = node_ids[i:i + batch_size]
+                placeholders = ",".join("?" for _ in batch)
+                cursor.execute(
+                    f"SELECT source_node, target_node, relationship_type, metadata FROM relationships WHERE source_node IN ({placeholders})",
+                    batch
+                )
+                for r in cursor.fetchall():
+                    meta = json.loads(r[3] or "{}") if r[3] else {}
+                    res.append({
+                        "source_node": r[0],
+                        "target_node": r[1],
+                        "relationship_type": r[2],
+                        "metadata": meta
+                    })
+        return res
+
     # Traversal operations
     def traverse_bfs(self, start_id: str, edge_types: List[str]) -> List[str]:
         visited = {start_id}

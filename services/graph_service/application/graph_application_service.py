@@ -53,74 +53,91 @@ class GraphApplicationService:
             file_findings_map.setdefault(f.file_path, []).append(f)
 
         graph_nodes = []
-        graph_edges = []
+        node_id_set = set()
 
-        # 1. Add Repository Node
-        repo_db_node = next((n for n in nodes if n["type"] == "Repository"), None)
-        if repo_db_node:
-            graph_nodes.append(GraphNode(
-                id=repo_db_node["id"],
-                label=repo_db_node["name"],
-                node_type="REPOSITORY",
-                file_path=repo_db_node.get("path")
-            ))
-
-        # 2. Add File Nodes & contains edges
-        file_nodes = [n for n in nodes if n["type"] == "File"]
-        for f in file_nodes:
-            fid = f["id"]
-            fpath = f.get("path")
+        for n in nodes:
+            nid = n["id"]
+            node_id_set.add(nid)
+            ntype = n["type"].upper()
+            npath = n.get("path")
+            nname = n.get("name", "unknown")
             
-            # Determine dead code status
-            is_dead = fid in dead_node_ids or fpath in dead_modules_files
+            # Dead code status
+            if ntype == "FILE":
+                is_dead = nid in dead_node_ids or npath in dead_modules_files
+            else:
+                is_dead = nid in dead_node_ids
             
-            # Determine architecture smell
-            is_smell = fid in smell_node_ids
+            # Smell status
+            is_smell = nid in smell_node_ids
 
-            # Calculate security score (Base 100 with severity deductions)
+            # Security score for files
             score = None
-            f_findings = file_findings_map.get(fpath, [])
-            if f_findings:
-                score = 100
-                for fnd in f_findings:
-                    if fnd.severity == "CRITICAL":
-                        score -= 40
-                    elif fnd.severity == "HIGH":
-                        score -= 25
-                    elif fnd.severity == "MEDIUM":
-                        score -= 15
-                    elif fnd.severity == "LOW":
-                        score -= 5
-                score = max(0, score)
+            if ntype == "FILE":
+                f_findings = file_findings_map.get(npath, [])
+                if f_findings:
+                    score = 100
+                    for fnd in f_findings:
+                        if fnd.severity == "CRITICAL":
+                            score -= 40
+                        elif fnd.severity == "HIGH":
+                            score -= 25
+                        elif fnd.severity == "MEDIUM":
+                            score -= 15
+                        elif fnd.severity == "LOW":
+                            score -= 5
+                    score = max(0, score)
+
+            meta = {k: v for k, v in n.items() if k not in ("id", "type", "name", "path")}
 
             graph_nodes.append(GraphNode(
-                id=fid,
-                label=f.get("name", "unknown"),
-                node_type="FILE",
-                file_path=fpath,
+                id=nid,
+                label=nname,
+                node_type=ntype,
+                file_path=npath,
+                start_line=n.get("start_line"),
+                end_line=n.get("end_line"),
                 security_score=score,
                 dead_code=is_dead,
                 architecture_smell=is_smell,
-                metadata={"size": f.get("size", 0), "line_count": f.get("line_count", 0)}
+                metadata=meta
             ))
 
-            # CONTAINS link Repository -> File
-            if repo_db_node:
-                graph_edges.append(GraphEdge(
-                    source=repo_db_node["id"],
-                    target=fid,
-                    relationship="CONTAINS"
-                ))
+        graph_edges = []
+        seen_edges = set()
 
-            # DEPENDS links between Files
+        # Fetch database relationships for all nodes in the repository
+        db_edges = self.repository.get_edges_between_nodes(list(node_id_set))
+        for e in db_edges:
+            s = e["source_node"]
+            t = e["target_node"]
+            rtype = e["relationship_type"]
+            # Validate source and target both exist in node_id_set (Phase 7: eliminate dangling edges)
+            if s in node_id_set and t in node_id_set:
+                edge_key = (s, t, rtype)
+                if edge_key not in seen_edges:
+                    seen_edges.add(edge_key)
+                    graph_edges.append(GraphEdge(
+                        source=s,
+                        target=t,
+                        relationship=rtype
+                    ))
+
+        # Add DEPENDS edges between files via dependency service
+        file_nodes = [n for n in nodes if n["type"] == "File"]
+        for fn in file_nodes:
+            fid = fn["id"]
             file_deps = self.dep_service.get_file_dependencies(fid, repo_id)
             for dep in file_deps:
-                # Add edge if dependency node is present
-                graph_edges.append(GraphEdge(
-                    source=fid,
-                    target=dep,
-                    relationship="DEPENDS"
-                ))
+                if dep in node_id_set:
+                    edge_key = (fid, dep, "DEPENDS")
+                    if edge_key not in seen_edges:
+                        seen_edges.add(edge_key)
+                        graph_edges.append(GraphEdge(
+                            source=fid,
+                            target=dep,
+                            relationship="DEPENDS"
+                        ))
 
         return RepositoryGraphResponse(nodes=graph_nodes, edges=graph_edges)
 

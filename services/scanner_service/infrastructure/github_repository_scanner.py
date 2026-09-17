@@ -16,37 +16,68 @@ class GithubRepositoryScanner(IRepositoryScanner):
         # Validate repository URL
         safe_url = validate_repository_url(repo_url)
 
-        # Ensure canonical destination directory path
+        # Ensure destination path
         abs_dest = os.path.abspath(dest_path)
-        if not os.path.exists(abs_dest):
-            os.makedirs(abs_dest, exist_ok=True)
-
         git_dir = os.path.join(abs_dest, ".git")
+        git_env = {
+            **os.environ,
+            "GIT_TERMINAL_PROMPT": "0",
+            "GCM_INTERACTIVE": "never",
+            "GIT_ASKPASS": "echo"
+        }
+
+        is_valid_git = False
         if os.path.exists(git_dir):
-            # Pull updates safely
-            subprocess.run(
-                ["git", "pull", "--ff-only"],
+            head_check = subprocess.run(
+                ["git", "rev-parse", "--verify", "HEAD"],
                 cwd=abs_dest,
-                capture_output=True,
-                check=True,
-                timeout=timeout
+                capture_output=True
             )
-        else:
-            # Clone fresh shallow repository with end-of-options delimiter
-            subprocess.run(
-                [
-                    "git",
-                    "clone",
-                    "--depth=1",
-                    "-c", "core.symlinks=false",
-                    "--",
-                    safe_url,
-                    abs_dest
-                ],
-                capture_output=True,
-                check=True,
-                timeout=timeout
-            )
+            if head_check.returncode == 0:
+                is_valid_git = True
+
+        if is_valid_git:
+            try:
+                # Pull updates safely
+                subprocess.run(
+                    ["git", "-c", "credential.helper=", "pull", "--ff-only"],
+                    cwd=abs_dest,
+                    capture_output=True,
+                    check=True,
+                    timeout=timeout,
+                    env=git_env
+                )
+                return abs_dest
+            except Exception:
+                # If pull fails, fall back to clean clone
+                pass
+
+        # If destination exists, clean it first to avoid fatal clone errors
+        if os.path.exists(abs_dest):
+            import shutil
+            import stat
+            def remove_readonly(func, path, excinfo):
+                os.chmod(path, stat.S_IWRITE)
+                func(path)
+            shutil.rmtree(abs_dest, onerror=remove_readonly)
+
+        # Clone fresh shallow repository with end-of-options delimiter
+        subprocess.run(
+            [
+                "git",
+                "-c", "credential.helper=",
+                "-c", "core.symlinks=false",
+                "clone",
+                "--depth=1",
+                "--",
+                safe_url,
+                abs_dest
+            ],
+            capture_output=True,
+            check=True,
+            timeout=timeout,
+            env=git_env
+        )
         return abs_dest
 
 Class = GithubRepositoryScanner

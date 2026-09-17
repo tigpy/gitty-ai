@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { RepositorySidebar } from '../components/sidebar/RepositorySidebar';
-import { GraphCanvas } from '../components/graph/GraphCanvas';
+import { GraphCanvas, type GraphCanvasRef } from '../components/graph/GraphCanvas';
 import { GraphToolbar } from '../components/graph/GraphToolbar';
 import { ChatPanel } from '../components/chat/ChatPanel';
 import { api } from '../services/api';
@@ -32,6 +32,7 @@ export const Dashboard: React.FC = () => {
   const [nodeDetails, setNodeDetails] = useState<NodeDetails | null>(null);
   const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
   const [loadingGraph, setLoadingGraph] = useState(false);
+  const graphCanvasRef = useRef<GraphCanvasRef | null>(null);
 
   // Overlay Toggles
   const [overlays, setOverlays] = useState({
@@ -389,6 +390,7 @@ export const Dashboard: React.FC = () => {
           </div>
         ) : (
           <GraphCanvas
+            ref={graphCanvasRef}
             nodes={nodes}
             edges={edges}
             selectedNode={selectedNode}
@@ -400,9 +402,9 @@ export const Dashboard: React.FC = () => {
         )}
 
         <GraphToolbar
-          onZoomIn={() => {}}
-          onZoomOut={() => {}}
-          onReset={() => {}}
+          onZoomIn={() => graphCanvasRef.current?.zoomIn()}
+          onZoomOut={() => graphCanvasRef.current?.zoomOut()}
+          onReset={() => graphCanvasRef.current?.resetView()}
           nodesCount={nodes.length}
           edgesCount={edges.length}
         />

@@ -1,3 +1,4 @@
+import os
 import hashlib
 from typing import List, Dict, Any, Set
 from libs.graph.algorithms.bfs import bfs_traverse
@@ -13,36 +14,80 @@ class DependencyTraversalService:
         
         # Build fallback path & name maps for repositories with custom IDs
         all_repo_nodes = self.repository.get_nodes_by_repository(repo_id)
-        file_path_map = {n.get("path"): n["id"] for n in all_repo_nodes if n.get("type") == "File"}
-        file_name_map = {n.get("name"): n["id"] for n in all_repo_nodes if n.get("type") == "File"}
+        file_path_map = {}
+        file_name_map = {}
+        for n in all_repo_nodes:
+            if n.get("type") == "File":
+                p = n.get("path", "")
+                nid = n["id"]
+                file_path_map[p] = nid
+                file_path_map[p.replace("\\", "/")] = nid
+                file_path_map[p.replace("/", "\\")] = nid
+                file_name_map[n.get("name", "")] = nid
+
+        source_node = self.repository.get_node(file_node_id)
+        source_path = source_node.get("path", "") if source_node else ""
+        source_dir = os.path.dirname(source_path).replace("\\", "/")
 
         dependencies = set()
         for imp_id in import_node_ids:
             imp_node = self.repository.get_node(imp_id)
             if not imp_node:
                 continue
-            imp_name = imp_node.get("name", "")
-            
-            # Resolve to a file in the repository
-            # e.g., "services.user_service.UserService" -> candidate paths:
-            # - "services/user_service/UserService.py"
-            # - "services/user_service.py"
-            # - "services.py"
-            parts = imp_name.split(".")
-            for i in range(len(parts), 0, -1):
-                candidate_path = "/".join(parts[:i]) + ".py"
-                candidate_name = parts[:i][-1] + ".py"
-                candidate_id = hashlib.sha256(f"{repo_id}:{candidate_path}".encode()).hexdigest()
-                
-                if self.repository.get_node(candidate_id):
-                    dependencies.add(candidate_id)
+            imp_name = imp_node.get("name", "").strip()
+            if not imp_name:
+                continue
+
+            candidate_paths: List[str] = []
+            candidate_names: List[str] = []
+
+            # 1. JS/TS Relative imports (./ or ../)
+            if imp_name.startswith("./") or imp_name.startswith("../"):
+                resolved_rel = os.path.normpath(os.path.join(source_dir, imp_name)).replace("\\", "/")
+                candidate_paths.append(resolved_rel)
+                for ext in [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]:
+                    candidate_paths.append(resolved_rel + ext)
+                    candidate_paths.append(f"{resolved_rel}/index{ext}")
+
+            # 2. JS/TS Alias imports (@/ or ~/)
+            elif imp_name.startswith("@/") or imp_name.startswith("~/"):
+                sub_path = imp_name[2:].lstrip("/\\")
+                for prefix in ["", "src/"]:
+                    base = f"{prefix}{sub_path}".strip("/")
+                    candidate_paths.append(base)
+                    for ext in [".ts", ".tsx", ".js", ".jsx", ".mjs"]:
+                        candidate_paths.append(base + ext)
+                        candidate_paths.append(f"{base}/index{ext}")
+
+            # 3. Python or Java dot notation (e.g. services.user_service.UserService)
+            else:
+                parts = imp_name.split(".")
+                for i in range(len(parts), 0, -1):
+                    for ext in [".py", ".ts", ".tsx", ".js", ".jsx"]:
+                        candidate_paths.append("/".join(parts[:i]) + ext)
+                    candidate_names.append(parts[:i][-1] + ".py")
+                    candidate_names.append(parts[:i][-1] + ".ts")
+                    candidate_names.append(parts[:i][-1] + ".tsx")
+                    candidate_names.append(parts[:i][-1] + ".js")
+
+            # Check matches in repository nodes
+            found = False
+            for c_path in candidate_paths:
+                c_id = hashlib.sha256(f"{repo_id}:{c_path}".encode()).hexdigest()
+                if self.repository.get_node(c_id):
+                    dependencies.add(c_id)
+                    found = True
                     break
-                elif candidate_path in file_path_map:
-                    dependencies.add(file_path_map[candidate_path])
+                elif c_path in file_path_map:
+                    dependencies.add(file_path_map[c_path])
+                    found = True
                     break
-                elif candidate_name in file_name_map:
-                    dependencies.add(file_name_map[candidate_name])
-                    break
+
+            if not found:
+                for c_name in candidate_names:
+                    if c_name in file_name_map:
+                        dependencies.add(file_name_map[c_name])
+                        break
         return list(dependencies)
 
     def find_dependency_chain(self, start_file_id: str, repo_id: str) -> List[str]:

@@ -23,6 +23,25 @@ class ChunkingService:
         except Exception:
             return None
 
+    @staticmethod
+    def _detect_language(file_path: str) -> str:
+        _, ext = os.path.splitext(file_path.lower())
+        mappings = {
+            ".py": "python",
+            ".js": "javascript",
+            ".mjs": "javascript",
+            ".cjs": "javascript",
+            ".jsx": "javascript",
+            ".ts": "typescript",
+            ".tsx": "typescript",
+            ".mts": "typescript",
+            ".cts": "typescript",
+            ".java": "java",
+            ".md": "markdown",
+            ".json": "json"
+        }
+        return mappings.get(ext, "unknown")
+
     def generate_chunks(
         self, 
         nodes: List[Dict[str, Any]], 
@@ -45,6 +64,7 @@ class ChunkingService:
 
             abs_path = os.path.join(repo_path, path) if repo_path else path
             meta = node.get("metadata", {})
+            file_lang = self._detect_language(path)
 
             if node_type == "Function":
                 start = meta.get("start_line") or node.get("start_line")
@@ -57,7 +77,7 @@ class ChunkingService:
                         "repository_id": repo_id,
                         "repository_name": repo_name,
                         "file_path": path,
-                        "language": "python",
+                        "language": file_lang,
                         "symbol_name": name,
                         "node_type": "FUNCTION",
                         "chunk_type": "FUNCTION"
@@ -84,7 +104,7 @@ class ChunkingService:
                         "repository_id": repo_id,
                         "repository_name": repo_name,
                         "file_path": path,
-                        "language": "python",
+                        "language": file_lang,
                         "symbol_name": name,
                         "node_type": "CLASS",
                         "chunk_type": "CLASS"
@@ -109,7 +129,7 @@ class ChunkingService:
                         "repository_id": repo_id,
                         "repository_name": repo_name,
                         "file_path": path,
-                        "language": "python",
+                        "language": file_lang,
                         "symbol_name": name,
                         "node_type": "FILE",
                         "chunk_type": "FILE"
@@ -181,7 +201,7 @@ class ChunkingService:
                     "repository_id": repo_id,
                     "repository_name": repo_name,
                     "file_path": f_path,
-                    "language": "python",
+                    "language": self._detect_language(f_path),
                     "symbol_name": rule_id,
                     "node_type": "SECURITY_FINDING",
                     "chunk_type": "SECURITY_FINDING"

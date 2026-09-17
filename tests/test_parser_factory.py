@@ -23,11 +23,17 @@ def test_parser_factory_invalid_language():
         factory.get_parser("ruby")
     assert "No parser implementation registered for language: ruby" in str(excinfo.value)
 
-def test_parser_factory_not_implemented_parsers():
+def test_parser_factory_parsers():
     factory = ParserFactory()
-    for lang in ["java", "javascript", "typescript"]:
+    # Java returns placeholder IR
+    java_parser = factory.get_parser("java")
+    java_result = java_parser.parse_file("public class Foo {}", file_path="test.java")
+    assert java_result.get("unsupported") is True
+
+    # JavaScript and TypeScript return active IR
+    for lang in ["javascript", "typescript"]:
         parser = factory.get_parser(lang)
-        result = parser.parse_file("some content", file_path=f"test.{lang}")
-        assert result.get("unsupported") is True
-        assert len(result.get("classes", [])) == 0
-        assert len(result.get("functions", [])) == 0
+        result = parser.parse_file("function hello() { return 1; }", file_path=f"test.{lang}")
+        assert result.get("unsupported") is not True
+        assert len(result.get("functions", [])) == 1
+        assert result["functions"][0]["name"] == "hello"
