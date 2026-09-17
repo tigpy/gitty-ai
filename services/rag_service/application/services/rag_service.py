@@ -52,7 +52,9 @@ class RAGService:
                 pass
 
         try:
-            retrieved_chunks: List[Chunk] = []
+            # Use a list of (Chunk, score) pairs so the real Qdrant similarity score
+            # is preserved all the way through to the citation output.
+            retrieved_pairs: List[tuple] = []  # (Chunk, float score)
 
             # 2. Retrieve Code & Documentation Chunks
             if query.include_code or query.include_docs:
@@ -61,12 +63,12 @@ class RAGService:
                     query=query.question,
                     limit=query.limit
                 )
-                # Filter based on flags
                 for c in chunks:
                     is_code = c.chunk_type in ("FUNCTION", "CLASS", "FILE")
                     is_doc = c.chunk_type == "DOCUMENTATION"
                     if (query.include_code and is_code) or (query.include_docs and is_doc):
-                        retrieved_chunks.append(c)
+                        score = c.metadata.get("_score", 0.0) if c.metadata else 0.0
+                        retrieved_pairs.append((c, score))
 
             # 3. Retrieve Security Finding Chunks
             if query.include_security:
@@ -77,27 +79,27 @@ class RAGService:
                     min_score=query.min_score
                 )
                 for res in sec_results:
-                    # Map SearchResult to Chunk
-                    retrieved_chunks.append(Chunk(
+                    chunk = Chunk(
                         id=str(uuid.uuid4()),
                         text=res.snippet,
                         chunk_type="SECURITY_FINDING",
                         metadata={
                             "file_path": res.file_path,
                             "symbol_name": res.symbol_name,
-                            "chunk_type": "SECURITY_FINDING"
+                            "chunk_type": "SECURITY_FINDING",
+                            "_score": res.score,
                         },
                         content_hash="",
                         version=1
-                    ))
+                    )
+                    retrieved_pairs.append((chunk, res.score))
 
-            # Sort combined chunks by score (if score exists in search metadata, or keep search order)
-            # Limit the final retrieved chunk list to keep context tight
-            retrieved_chunks = retrieved_chunks[:query.limit]
+            # Sort combined pairs by score descending, then cap to limit
+            retrieved_pairs.sort(key=lambda x: x[1], reverse=True)
+            retrieved_pairs = retrieved_pairs[:query.limit]
 
-            if not retrieved_chunks:
-                # Fallback context if nothing matches
-                pass
+            # Unpack for prompt construction
+            retrieved_chunks = [pair[0] for pair in retrieved_pairs]
 
             # 4. Construct prompt via PromptBuilder
             prompt = self.prompt_builder.build_rag_prompt(
@@ -130,17 +132,17 @@ class RAGService:
                 except Exception:
                     pass
 
-            # Map retrieved chunks to output DTOs
+            # Map retrieved chunks to output DTOs using real similarity scores
             citations = []
-            for c in retrieved_chunks:
-                meta = c.metadata or {}
+            for chunk, score in retrieved_pairs:
+                meta = chunk.metadata or {}
                 citations.append(RetrievedChunk(
-                    score=0.99,  # Default mock score since SearchResult to Chunk mapping doesn't hold raw float score
+                    score=round(score, 4),
                     file_path=meta.get("file_path", "unknown"),
                     symbol_name=meta.get("symbol_name"),
-                    start_line=c.start_line,
-                    end_line=c.end_line,
-                    chunk_type=c.chunk_type
+                    start_line=chunk.start_line,
+                    end_line=chunk.end_line,
+                    chunk_type=chunk.chunk_type
                 ))
 
             return RAGResponse(

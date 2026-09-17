@@ -10,9 +10,12 @@ class PythonASTVisitor(ast.NodeVisitor):
         self.classes: List[IRClass] = []
         self.functions: List[IRFunction] = []
         self.calls: List[IRCall] = []
-        
-        # Track current class context while visiting
-        self._current_class: Optional[str] = None
+
+        # Track the current class *object* (not just its name) so that methods are
+        # always appended to the correct IRClass instance even if two classes share
+        # the same name (e.g. nested classes or same-name re-definitions).
+        self._current_class_obj: Optional[IRClass] = None
+        self._current_class: Optional[str] = None   # kept for is_method / class_context
         self._current_function: Optional[str] = None
 
     def visit_Import(self, node: ast.Import):
@@ -60,6 +63,7 @@ class PythonASTVisitor(ast.NodeVisitor):
                 decorators.append(dec.attr)
 
         prev_class = self._current_class
+        prev_class_obj = self._current_class_obj
         self._current_class = node.name
 
         ir_class = IRClass(
@@ -70,12 +74,16 @@ class PythonASTVisitor(ast.NodeVisitor):
             decorators=decorators,
             methods=[]
         )
-        
-        # Save reference, then visit children
+
+        # Pin the current class *object* before visiting children so that methods
+        # are always appended to the correct IRClass instance, even when two classes
+        # share the same name (nested or re-defined).
+        self._current_class_obj = ir_class
         self.classes.append(ir_class)
         self.generic_visit(node)
-        
+
         self._current_class = prev_class
+        self._current_class_obj = prev_class_obj
 
     def visit_FunctionDef(self, node: ast.FunctionDef):
         self._visit_function(node)
@@ -123,12 +131,10 @@ class PythonASTVisitor(ast.NodeVisitor):
             class_context=self._current_class
         )
 
-        if self._current_class is not None:
-            # Add method to the matching class
-            for c in self.classes:
-                if c.name == self._current_class:
-                    c.methods.append(ir_function)
-                    break
+        if self._current_class_obj is not None:
+            # Append method directly to the pinned class object reference —
+            # no name search needed, avoids the duplicate-name ambiguity bug.
+            self._current_class_obj.methods.append(ir_function)
         else:
             self.functions.append(ir_function)
 

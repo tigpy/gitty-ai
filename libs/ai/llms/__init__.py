@@ -40,5 +40,17 @@ def get_llm_provider(provider_name: str, model_name: str) -> BaseLLM:
     elif provider_name_lower == "openai":
         from .openai import OpenAICompatibleProvider
         return OpenAICompatibleProvider(model_name=model_name)
-    else:
+    elif provider_name_lower == "claude":
+        from .claude import ClaudeProvider
+        return ClaudeProvider(model_name=model_name)
+    elif provider_name_lower == "gemini":
+        from .gemini import GeminiProvider
+        return GeminiProvider(model_name=model_name)
+    elif provider_name_lower == "mock":
         return MockLLM(provider=provider_name, model=model_name)
+    else:
+        raise ValueError(
+            f"Unsupported LLM provider: '{provider_name}'. "
+            f"Valid options are: ollama, openai, claude, gemini, mock. "
+            f"Check the LLM_PROVIDER setting in your .env file."
+        )

@@ -3,7 +3,16 @@ from typing import Optional
 
 class SystemSettings(BaseSettings):
     ENV: str = "development"
-    
+
+    # CORS — comma-separated list of allowed origins.
+    # Default covers local frontend dev server; override in staging/prod via env var.
+    # Example: CORS_ORIGINS="https://app.mysite.com,https://staging.mysite.com"
+    CORS_ORIGINS_RAW: str = "http://localhost:5173"
+
+    @property
+    def CORS_ORIGINS(self) -> list:
+        return [o.strip() for o in self.CORS_ORIGINS_RAW.split(",") if o.strip()]
+
     # Cache / Session Store
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
