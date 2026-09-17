@@ -39,6 +39,7 @@ export const Dashboard: React.FC = () => {
   const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
   const [loadingGraph, setLoadingGraph] = useState(false);
   const [currentZoom, setCurrentZoom] = useState(1);
+  const [hasInteracted, setHasInteracted] = useState(false);
   const graphCanvasRef = useRef<GraphCanvasRef | null>(null);
 
   // Overlay Toggles
@@ -112,6 +113,7 @@ export const Dashboard: React.FC = () => {
     setSelectedNode(null);
     setNodeDetails(null);
     setHighlightedNodeId(null);
+    setHasInteracted(false);
 
     api.getRepositoryGraph(selectedRepo.id)
       .then((data) => {
@@ -344,6 +346,7 @@ export const Dashboard: React.FC = () => {
           onSelectRepo={onSelectRepo}
           nodes={nodes}
           onSelectNode={handleSelectNode}
+          selectedNode={selectedNode}
           overlays={overlays}
           onToggleOverlay={handleToggleOverlay}
           repos={repos}
@@ -495,6 +498,7 @@ export const Dashboard: React.FC = () => {
               overlays={overlays}
               highlightedNodeId={highlightedNodeId}
               onZoomChange={setCurrentZoom}
+              onInteraction={() => setHasInteracted(true)}
             />
           )}
 
@@ -517,6 +521,7 @@ export const Dashboard: React.FC = () => {
             nodesCount={nodes.length}
             edgesCount={edges.length}
             status={loadingGraph ? 'COMPUTING' : (nodes.length > 0 ? 'STABLE' : 'READY')}
+            hasInteracted={hasInteracted}
           />
         </section>
 

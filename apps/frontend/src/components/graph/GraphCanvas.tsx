@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useImperativeHandle, forwardRef, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useMemo, useImperativeHandle, forwardRef, useCallback } from 'react';
 import type { GraphNode, GraphEdge } from '../../types';
 
 export interface GraphCanvasRef {
@@ -21,6 +21,7 @@ interface GraphCanvasProps {
   };
   highlightedNodeId?: string | null;
   onZoomChange?: (zoom: number) => void;
+  onInteraction?: () => void;
 }
 
 interface SimNode extends GraphNode {
@@ -191,6 +192,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({
   overlays,
   highlightedNodeId,
   onZoomChange,
+  onInteraction,
 }, ref) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -205,6 +207,39 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({
 
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
+
+  // Deterministic node degree & importance ranking
+  const { degreeMap, rankedNodes } = useMemo(() => {
+    const degMap = new Map<string, number>();
+    for (let i = 0; i < edges.length; i++) {
+      const e = edges[i];
+      degMap.set(e.source, (degMap.get(e.source) || 0) + 1);
+      degMap.set(e.target, (degMap.get(e.target) || 0) + 1);
+    }
+
+    const getNodeScore = (n: SimNode) => {
+      let score = 0;
+      const deg = degMap.get(n.id) || 0;
+      if (n.node_type === 'REPOSITORY') score += 10000;
+      else if (n.node_type === 'FILE') score += 5000 + deg * 10;
+      else if (n.node_type === 'CLASS') score += 2000 + deg * 10;
+      else if (n.node_type === 'SECURITY_FINDING') score += 1500;
+      else score += deg * 5;
+
+      if (n.security_score !== null && n.security_score !== undefined && n.security_score < 100) {
+        score += 800;
+      }
+      return score;
+    };
+
+    const ranked = [...simNodes].sort((a, b) => {
+      const diff = getNodeScore(b) - getNodeScore(a);
+      if (diff !== 0) return diff;
+      return a.id.localeCompare(b.id);
+    });
+
+    return { degreeMap: degMap, rankedNodes: ranked };
+  }, [simNodes, edges]);
 
   useEffect(() => {
     onZoomChange?.(zoom);
@@ -494,6 +529,38 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({
         });
       }
 
+      // Deterministic LOD Label Budget:
+      // LOW ZOOM (< 0.35): max 24 labels (REPOSITORY, FILE, top CLASS nodes)
+      // MEDIUM ZOOM (0.35 - 0.70): max 75 labels (REPOSITORY, FILE, CLASS, and active/high-degree FUNCTION)
+      // HIGH ZOOM (>= 0.70): max 180 labels
+      const visibleLabelIds = new Set<string>();
+      if (selectedNode) {
+        visibleLabelIds.add(selectedNode.id);
+        connectedNodeIds.forEach(id => visibleLabelIds.add(id));
+      }
+
+      const maxLabelBudget = zoom < 0.35 ? 24 : zoom < 0.70 ? 75 : 180;
+      for (let i = 0; i < rankedNodes.length && visibleLabelIds.size < maxLabelBudget; i++) {
+        const node = rankedNodes[i];
+        if (visibleLabelIds.has(node.id)) continue;
+
+        const deg = degreeMap.get(node.id) || 0;
+        if (zoom < 0.35) {
+          // Low Zoom: System architecture overview
+          if (node.node_type === 'REPOSITORY' || node.node_type === 'FILE' || (node.node_type === 'CLASS' && deg >= 4)) {
+            visibleLabelIds.add(node.id);
+          }
+        } else if (zoom < 0.70) {
+          // Medium Zoom: Structural symbols
+          if (node.node_type === 'REPOSITORY' || node.node_type === 'FILE' || node.node_type === 'CLASS' || deg >= 2) {
+            visibleLabelIds.add(node.id);
+          }
+        } else {
+          // High Zoom: Full symbol fidelity
+          visibleLabelIds.add(node.id);
+        }
+      }
+
       // Draw Edges
       edges.forEach((edge, idx) => {
         const sNode = nodeMap.get(edge.source);
@@ -511,41 +578,58 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({
             ctx.lineWidth = 2.5;
           } else if (selectedNode) {
             if (isConnectedToSelected) {
-              ctx.strokeStyle = 'rgba(240, 164, 34, 0.85)';
-              ctx.lineWidth = 2;
+              ctx.strokeStyle = 'rgba(240, 164, 34, 0.9)';
+              ctx.lineWidth = 2.2;
             } else {
-              ctx.strokeStyle = 'rgba(232, 235, 239, 0.04)';
-              ctx.lineWidth = 0.8;
+              ctx.strokeStyle = 'rgba(232, 235, 239, 0.025)';
+              ctx.lineWidth = 0.5;
             }
           } else {
-            ctx.strokeStyle = 'rgba(232, 235, 239, 0.09)';
-            ctx.lineWidth = 1;
+            // Subtle zoom-scaled edge intensity
+            if (zoom < 0.35) {
+              ctx.strokeStyle = 'rgba(232, 235, 239, 0.04)';
+              ctx.lineWidth = 0.6;
+            } else if (zoom < 0.70) {
+              ctx.strokeStyle = 'rgba(232, 235, 239, 0.07)';
+              ctx.lineWidth = 0.8;
+            } else {
+              ctx.strokeStyle = 'rgba(232, 235, 239, 0.11)';
+              ctx.lineWidth = 1;
+            }
           }
           ctx.stroke();
 
-          // Dependency arrow
-          const angle = Math.atan2(tNode.y - sNode.y, tNode.x - sNode.x);
-          const arrowLength = 5;
-          const arrowOffset = 20;
-          const arrowX = tNode.x - Math.cos(angle) * arrowOffset;
-          const arrowY = tNode.y - Math.sin(angle) * arrowOffset;
-          
-          ctx.beginPath();
-          ctx.moveTo(arrowX, arrowY);
-          ctx.lineTo(arrowX - arrowLength * Math.cos(angle - Math.PI / 6), arrowY - arrowLength * Math.sin(angle - Math.PI / 6));
-          ctx.lineTo(arrowX - arrowLength * Math.cos(angle + Math.PI / 6), arrowY - arrowLength * Math.sin(angle + Math.PI / 6));
-          ctx.fillStyle = overlays.callGraph 
-            ? 'rgba(61, 220, 151, 0.75)' 
-            : isConnectedToSelected 
-              ? 'rgba(240, 164, 34, 0.85)' 
-              : 'rgba(232, 235, 239, 0.12)';
-          ctx.fill();
+          // Dependency arrow rendering
+          // Show arrows when selected, or at medium/high zoom when no node is selected
+          const showArrow = isConnectedToSelected || overlays.callGraph || (!selectedNode && zoom >= 0.40);
+          if (showArrow) {
+            const angle = Math.atan2(tNode.y - sNode.y, tNode.x - sNode.x);
+            const arrowLength = 5;
+            const arrowOffset = 20;
+            const arrowX = tNode.x - Math.cos(angle) * arrowOffset;
+            const arrowY = tNode.y - Math.sin(angle) * arrowOffset;
+            
+            ctx.beginPath();
+            ctx.moveTo(arrowX, arrowY);
+            ctx.lineTo(arrowX - arrowLength * Math.cos(angle - Math.PI / 6), arrowY - arrowLength * Math.sin(angle - Math.PI / 6));
+            ctx.lineTo(arrowX - arrowLength * Math.cos(angle + Math.PI / 6), arrowY - arrowLength * Math.sin(angle + Math.PI / 6));
+            ctx.fillStyle = overlays.callGraph 
+              ? 'rgba(61, 220, 151, 0.75)' 
+              : isConnectedToSelected 
+                ? 'rgba(240, 164, 34, 0.9)' 
+                : 'rgba(232, 235, 239, 0.12)';
+            ctx.fill();
+          }
         }
       });
 
       // Draw Nodes
       simNodes.forEach((node) => {
-        const radius = getNodeRadius(node.node_type);
+        const baseRadius = getNodeRadius(node.node_type);
+        const deg = degreeMap.get(node.id) || 0;
+        // Subtle prominence for architectural hub nodes (+0 to +3.5px max)
+        const degreeBonus = Math.min(Math.sqrt(deg) * 0.5, 3.5);
+        const radius = baseRadius + degreeBonus;
         const color = getNodeColor(node.node_type);
 
         const isSelected = selectedNode && selectedNode.id === node.id;
@@ -556,7 +640,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({
 
         // Subtle dimming of unconnected nodes when a target is focused
         if (selectedNode && !isConnectedNeighbor) {
-          ctx.globalAlpha = 0.35;
+          ctx.globalAlpha = 0.30;
         }
 
         ctx.beginPath();
@@ -607,18 +691,14 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({
         ctx.fill();
         ctx.restore();
 
-        // Draw Node Text Labels:
-        // High zoom (zoom >= 0.45): show all
-        // Low zoom (zoom < 0.45): show only REPOSITORY and FILE (or if selected)
-        const shouldShowLabel = isSelected || isConnectedNeighbor || (zoom >= 0.45) || (node.node_type === 'REPOSITORY' || node.node_type === 'FILE');
-
-        if (shouldShowLabel) {
+        // Draw Node Text Labels strictly based on deterministic LOD budget
+        if (visibleLabelIds.has(node.id)) {
           ctx.save();
           if (selectedNode && !isConnectedNeighbor) {
-            ctx.globalAlpha = 0.3;
+            ctx.globalAlpha = 0.35;
           }
           ctx.font = isSelected ? "bold 11px 'JetBrains Mono', monospace" : "10px 'JetBrains Mono', monospace";
-          ctx.fillStyle = isSelected ? '#FFB400' : isConnectedNeighbor ? '#E8EBEF' : 'rgba(232, 235, 239, 0.7)';
+          ctx.fillStyle = isSelected ? '#FFB400' : isConnectedNeighbor ? '#E8EBEF' : 'rgba(232, 235, 239, 0.75)';
           ctx.textAlign = 'center';
           ctx.fillText(node.label, node.x, node.y + radius + 13);
           
@@ -637,7 +717,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({
     updatePhysics();
 
     return () => cancelAnimationFrame(animationId);
-  }, [simNodes, edges, selectedNode, pan, zoom, overlays, highlightedNodeId]);
+  }, [simNodes, edges, selectedNode, pan, zoom, overlays, highlightedNodeId, degreeMap, rankedNodes]);
 
   // Adjust canvas size to container and maintain centered view on resize
   useEffect(() => {
@@ -701,6 +781,8 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({
     }
 
     if (clickedNode) {
+      hasUserInteractedRef.current = true;
+      onInteraction?.();
       draggedNodeRef.current = clickedNode;
       onSelectNode(clickedNode);
 
@@ -711,6 +793,8 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({
       }
       lastClickRef.current = { time: now, nodeId: clickedNode.id };
     } else {
+      hasUserInteractedRef.current = true;
+      onInteraction?.();
       isDraggingViewportRef.current = true;
       dragStartRef.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
     }
@@ -748,6 +832,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({
     const canvas = canvasRef.current;
     if (!canvas) return;
     hasUserInteractedRef.current = true;
+    onInteraction?.();
 
     const rect = canvas.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;

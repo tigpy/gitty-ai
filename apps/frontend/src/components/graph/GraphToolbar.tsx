@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { 
   ZoomIn, 
   ZoomOut, 
@@ -14,6 +14,7 @@ interface ToolbarProps {
   nodesCount: number;
   edgesCount: number;
   status?: string;
+  hasInteracted?: boolean;
 }
 
 export const GraphToolbar: React.FC<ToolbarProps> = ({
@@ -22,16 +23,17 @@ export const GraphToolbar: React.FC<ToolbarProps> = ({
   onReset,
   nodesCount,
   edgesCount,
-  status = 'STABLE'
+  status = 'STABLE',
+  hasInteracted = false
 }) => {
   return (
     <div style={{
       position: 'absolute',
-      bottom: '16px',
-      left: '16px',
+      bottom: '14px',
+      left: '14px',
       display: 'flex',
       alignItems: 'center',
-      gap: '8px',
+      gap: '6px',
       zIndex: 15,
       userSelect: 'none'
     }}>
@@ -40,35 +42,35 @@ export const GraphToolbar: React.FC<ToolbarProps> = ({
         className="console-panel"
         style={{ 
           display: 'flex', 
-          padding: '3px', 
-          gap: '3px',
-          background: 'rgba(18, 22, 28, 0.85)',
-          backdropFilter: 'blur(6px)'
+          padding: '2px', 
+          gap: '2px',
+          background: 'rgba(18, 22, 28, 0.9)',
+          backdropFilter: 'blur(8px)'
         }}
       >
         <button 
           onClick={onZoomIn}
           className="console-btn"
-          style={{ padding: '5px 7px' }}
+          style={{ padding: '4px 6px' }}
           title="Zoom In"
         >
-          <ZoomIn size={13} />
+          <ZoomIn size={12} />
         </button>
         <button 
           onClick={onZoomOut}
           className="console-btn"
-          style={{ padding: '5px 7px' }}
+          style={{ padding: '4px 6px' }}
           title="Zoom Out"
         >
-          <ZoomOut size={13} />
+          <ZoomOut size={12} />
         </button>
         <button 
           onClick={onReset}
           className="console-btn"
-          style={{ padding: '5px 9px', gap: '5px' }}
+          style={{ padding: '4px 8px', gap: '4px', fontSize: '10px' }}
           title="Reset & Center View"
         >
-          <RotateCcw size={12} />
+          <RotateCcw size={11} />
           <span>RESET</span>
         </button>
       </div>
@@ -79,24 +81,24 @@ export const GraphToolbar: React.FC<ToolbarProps> = ({
         style={{ 
           display: 'flex', 
           alignItems: 'center', 
-          gap: '10px', 
-          padding: '6px 12px', 
-          fontSize: '11px',
+          gap: '8px', 
+          padding: '4px 10px', 
+          fontSize: '10px',
           fontFamily: 'var(--font-mono)',
           color: 'var(--ink-secondary)',
-          background: 'rgba(18, 22, 28, 0.85)',
-          backdropFilter: 'blur(6px)'
+          background: 'rgba(18, 22, 28, 0.9)',
+          backdropFilter: 'blur(8px)'
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-          <Activity size={12} style={{ color: 'var(--status-green)' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <Activity size={11} style={{ color: status === 'STABLE' ? 'var(--status-green)' : 'var(--ink-muted)' }} />
           <span style={{ color: 'var(--ink-muted)' }}>NODES:</span>
           <span className="mono-num" style={{ color: 'var(--ink-primary)', fontWeight: 600 }}>{nodesCount}</span>
         </div>
 
         <span style={{ color: 'var(--hairline)' }}>|</span>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
           <span style={{ color: 'var(--ink-muted)' }}>EDGES:</span>
           <span className="mono-num" style={{ color: 'var(--ink-primary)', fontWeight: 600 }}>{edgesCount}</span>
         </div>
@@ -104,29 +106,52 @@ export const GraphToolbar: React.FC<ToolbarProps> = ({
         <span style={{ color: 'var(--hairline)' }}>|</span>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <span className="status-dot status-dot-green" />
-          <span style={{ color: 'var(--status-green)', fontSize: '10px', fontWeight: 600 }}>{status}</span>
+          {status === 'STABLE' && nodesCount > 0 ? (
+            <>
+              <span className="status-dot status-dot-green" />
+              <span style={{ color: 'var(--status-green)', fontSize: '9.5px', fontWeight: 600 }}>STABLE</span>
+            </>
+          ) : (
+            <span style={{ color: 'var(--ink-muted)', fontSize: '9.5px', fontWeight: 500 }}>{status}</span>
+          )}
         </div>
       </div>
 
-      {/* Quick interaction hint */}
-      <div 
-        className="console-panel"
-        style={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          gap: '6px', 
-          padding: '6px 10px', 
-          fontSize: '10.5px',
-          fontFamily: 'var(--font-mono)',
-          color: 'var(--ink-muted)',
-          background: 'rgba(18, 22, 28, 0.85)',
-          backdropFilter: 'blur(6px)'
-        }}
-      >
-        <Compass size={12} style={{ color: 'var(--accent-amber)' }} />
-        <span>DBL-CLICK FILE/CLASS TO EXPAND</span>
-      </div>
+      {/* Quick interaction hint (collapses after user interacts to prevent obstruction) */}
+      {!hasInteracted ? (
+        <div 
+          className="console-panel"
+          style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '5px', 
+            padding: '4px 8px', 
+            fontSize: '9.5px',
+            fontFamily: 'var(--font-mono)',
+            color: 'var(--ink-muted)',
+            background: 'rgba(18, 22, 28, 0.9)',
+            backdropFilter: 'blur(8px)'
+          }}
+        >
+          <Compass size={11} style={{ color: 'var(--accent-amber)' }} />
+          <span>DBL-CLICK FILE/CLASS TO EXPAND</span>
+        </div>
+      ) : (
+        <div 
+          className="console-panel"
+          title="Tip: Double-click File or Class node to expand AST structure"
+          style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            padding: '4px 6px', 
+            background: 'rgba(18, 22, 28, 0.7)',
+            backdropFilter: 'blur(8px)',
+            cursor: 'help'
+          }}
+        >
+          <Compass size={11} style={{ color: 'var(--ink-muted)' }} />
+        </div>
+      )}
     </div>
   );
 };
