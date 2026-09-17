@@ -1,6 +1,6 @@
 # GITTY-AI
 
-> **AI-Powered Code Intelligence & Cybersecurity Platform**  
+> **AI-Powered Code Intelligence & Cybersecurity Platform**
 > *Deterministic AST parsing, property graph dependency mapping, vector semantic search, and real-time vulnerability detection.*
 
 ---
@@ -11,13 +11,13 @@
 
 ### Core Capabilities
 
-- **Secure Ingestion Pipeline**: Shallow cloning (`--depth=1`) with SSRF filtering, command flag defense (`--`), symlink disabling (`core.symlinks=false`), and execution timeouts.
-- **AST & Dependency Graph**: Extracts code entities, function definitions, class hierarchies, and call relationships into SQLite or Neo4j.
-- **Vulnerability Intelligence**: Live query integration with the **Google OSV (Open Source Vulnerabilities)** database, complemented by static detection for hardcoded secrets and hazardous APIs (`eval`, `exec`, `shell=True`).
-- **Semantic Vector Search & RAG**: 384-dimensional dense code embeddings indexed in Qdrant with real cosine similarity score propagation and SQLite embedding caching.
-- **Prompt Injection Hardening**: XML boundary fencing (`<repository_untrusted_context>`) and security system prompts preventing repository code comments from hijacking LLM reasoning.
-- **Full-Stack Authentication**: Native RFC 7519 HMAC-SHA256 JWT tokens and PBKDF2-HMAC-SHA256 password hashing (600,000 iterations) with strict per-user IDOR data isolation.
-- **Modern Interactive UI**: React 19 + TypeScript + Vite SPA featuring interactive graph canvas, live Server-Sent Events (SSE) log terminal, and AI chat assistant with clickable symbol citations.
+* **Secure Ingestion Pipeline**: Shallow cloning (`--depth=1`) with SSRF filtering, command flag defense (`--`), symlink disabling (`core.symlinks=false`), and execution timeouts.
+* **AST & Dependency Graph**: Extracts code entities, function definitions, class hierarchies, and call relationships into SQLite or Neo4j.
+* **Vulnerability Intelligence**: Live query integration with the **Google OSV (Open Source Vulnerabilities)** database, complemented by static detection for hardcoded secrets and hazardous APIs (`eval`, `exec`, `shell=True`).
+* **Semantic Vector Search & RAG**: 384-dimensional dense code embeddings indexed in Qdrant with real cosine similarity score propagation and SQLite embedding caching.
+* **Prompt Injection Hardening**: XML boundary fencing (`<repository_untrusted_context>`) and security system prompts preventing repository code comments from hijacking LLM reasoning.
+* **Full-Stack Authentication**: Native RFC 7519 HMAC-SHA256 JWT tokens and PBKDF2-HMAC-SHA256 password hashing (600,000 iterations) with strict per-user IDOR data isolation.
+* **Modern Interactive UI**: React 19 + TypeScript + Vite SPA featuring interactive graph canvas, live Server-Sent Events (SSE) log terminal, and AI chat assistant with clickable symbol citations.
 
 ---
 
@@ -34,7 +34,7 @@
 |                    FASTAPI API GATEWAY                      |
 |  - RFC 7519 JWT Auth & PBKDF2 Password Hashing              |
 |  - IDOR-Protected Resource Ownership Checks                 |
-|  - REST Endpoints (/repositories, /graph, /chat, /search)   |
+|  - REST Endpoints (/repositories, /graph, /chat, /search)  |
 |  - Async Redis SSE Progress Streaming                       |
 +------------------------------+------------------------------+
                                | Task Dispatch (AMQP)
@@ -46,7 +46,7 @@
 |  - Secret Detection & Dangerous API Scanning                |
 |  - Dead Code Detection (DeadCodeDetectionService)           |
 |  - Graph Construction & Bulk Commit                         |
-|  - Semantic Code Chunking & Embeddings                      |
+|  - Semantic Code Chunking & Embeddings                       |
 +-----------+--------------------+--------------------+-------+
             |                    |                    |
 +-----------v-----------++-------v--------++----------v-------+
@@ -64,10 +64,10 @@ For complete architectural details, see [System Architecture](docs/architecture.
 
 ### Prerequisites
 
-- **Python 3.11+** or **Python 3.13**
-- **Node.js 18+** and **npm**
-- **Git**
-- **Docker & Docker Compose** (for infrastructure services: Redis, RabbitMQ, Qdrant)
+* **Python 3.11+** or **Python 3.13**
+* **Node.js 18+** and **npm**
+* **Git**
+* **Docker & Docker Compose** (for infrastructure services: Redis, RabbitMQ, Qdrant)
 
 ---
 
@@ -153,40 +153,44 @@ docker compose -f infrastructure/compose/docker-compose.dev.yml up --build
 
 All protected endpoints require an `Authorization: Bearer <token>` header obtained from the auth endpoints.
 
-| Method | Endpoint | Description | Auth Required |
-|---|---|---|---|
-| `POST` | `/api/v1/auth/register` | Register a new user account | No |
-| `POST` | `/api/v1/auth/login` | Authenticate and obtain JWT access token | No |
-| `GET` | `/api/v1/auth/me` | Fetch authenticated user profile | Yes |
-| `POST` | `/api/v1/repositories/analyze` | Queue repository cloning and analysis | Yes |
-| `DELETE` | `/api/v1/repositories/{id}` | Delete repository, graph nodes, and vectors | Yes (Owner) |
-| `GET` | `/api/v1/repositories/{id}/progress` | Server-Sent Events stream of live logs | Yes (Owner) |
-| `GET` | `/api/v1/graph/repositories` | List repositories accessible to current user | Yes |
-| `GET` | `/api/v1/graph/repositories/{id}/data` | Fetch graph nodes and edges for visualization | Yes (Owner) |
-| `GET` | `/api/v1/graph/repositories/{id}/expand/{node_id}` | Expand children of a file or class node | Yes (Owner) |
-| `GET` | `/api/v1/graph/nodes/{node_id}` | Retrieve node details and security findings | Yes (Owner) |
-| `POST` | `/api/v1/chat/sessions` | Create a new AI chat session for a repository | Yes (Owner) |
-| `GET` | `/api/v1/chat/sessions/{id}` | Retrieve chat session history | Yes (Owner) |
-| `POST` | `/api/v1/chat/sessions/{id}/messages` | Send question to AI assistant with RAG citations | Yes (Owner) |
-| `POST` | `/api/v1/search/semantic` | Semantic vector search across repository code | Yes (Owner) |
+| Method   | Endpoint                                           | Description                                      | Auth Required |
+| -------- | -------------------------------------------------- | ------------------------------------------------ | ------------- |
+| `POST`   | `/api/v1/auth/register`                            | Register a new user account                      | No            |
+| `POST`   | `/api/v1/auth/login`                               | Authenticate and obtain JWT access token         | No            |
+| `GET`    | `/api/v1/auth/me`                                  | Fetch authenticated user profile                 | Yes           |
+| `POST`   | `/api/v1/repositories/analyze`                     | Queue repository cloning and analysis            | Yes           |
+| `DELETE` | `/api/v1/repositories/{id}`                        | Delete repository, graph nodes, and vectors      | Yes (Owner)   |
+| `GET`    | `/api/v1/repositories/{id}/progress`               | Server-Sent Events stream of live logs           | Yes (Owner)   |
+| `GET`    | `/api/v1/graph/repositories`                       | List repositories accessible to current user     | Yes           |
+| `GET`    | `/api/v1/graph/repositories/{id}/data`             | Fetch graph nodes and edges for visualization    | Yes (Owner)   |
+| `GET`    | `/api/v1/graph/repositories/{id}/expand/{node_id}` | Expand children of a file or class node          | Yes (Owner)   |
+| `GET`    | `/api/v1/graph/nodes/{node_id}`                    | Retrieve node details and security findings      | Yes (Owner)   |
+| `POST`   | `/api/v1/chat/sessions`                            | Create a new AI chat session for a repository    | Yes (Owner)   |
+| `GET`    | `/api/v1/chat/sessions/{id}`                       | Retrieve chat session history                    | Yes (Owner)   |
+| `POST`   | `/api/v1/chat/sessions/{id}/messages`              | Send question to AI assistant with RAG citations | Yes (Owner)   |
+| `POST`   | `/api/v1/search/semantic`                          | Semantic vector search across repository code    | Yes (Owner)   |
 
 ---
 
 ## Security Architecture
 
 1. **Authentication & Password Storage**:
-   - Zero external binary dependencies; utilizes Python standard library `hashlib.pbkdf2_hmac` with 600,000 iterations and cryptographic 16-byte random salts.
-   - RFC 7519 HMAC-SHA256 JWT tokens with configurable expiration (`JWT_ACCESS_TOKEN_EXPIRE_MINUTES`).
+
+   * Zero external binary dependencies; utilizes Python standard library `hashlib.pbkdf2_hmac` with 600,000 iterations and cryptographic 16-byte random salts.
+   * RFC 7519 HMAC-SHA256 JWT tokens with configurable expiration (`JWT_ACCESS_TOKEN_EXPIRE_MINUTES`).
 2. **Access Control & Anti-IDOR**:
-   - All repository analyses and chat sessions are linked to user accounts in SQLite.
-   - Fast-path verification dependencies (`require_repository_owner`, `require_session_owner`) ensure users cannot access, traverse, delete, or chat about repositories owned by other users.
+
+   * All repository analyses and chat sessions are linked to user accounts in SQLite.
+   * Fast-path verification dependencies (`require_repository_owner`, `require_session_owner`) ensure users cannot access, traverse, delete, or chat about repositories owned by other users.
 3. **Repository Ingestion Hardening**:
-   - URLs starting with `-` or `--` command flags are strictly rejected before calling `subprocess`.
-   - Loopback (`127.0.0.1`, `localhost`), link-local metadata (`169.254.169.254`), and private RFC 1918 subnets (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) are blocked to prevent Server-Side Request Forgery (SSRF).
-   - Git shallow clones execute with explicit `--` delimiters and `-c core.symlinks=false` to prevent symlink traversal attacks.
+
+   * URLs starting with `-` or `--` command flags are strictly rejected before calling `subprocess`.
+   * Loopback (`127.0.0.1`, `localhost`), link-local metadata (`169.254.169.254`), and private RFC 1918 subnets (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) are blocked to prevent Server-Side Request Forgery (SSRF).
+   * Git shallow clones execute with explicit `--` delimiters and `-c core.symlinks=false` to prevent symlink traversal attacks.
 4. **Prompt Injection Defense**:
-   - Code context passed to the LLM is fenced inside `<repository_untrusted_context>` tags.
-   - Strict system instructions mandate treating code context strictly as inert data to be analyzed, resisting prompt injection attempts embedded inside code comments or README files.
+
+   * Code context passed to the LLM is fenced inside `<repository_untrusted_context>` tags.
+   * Strict system instructions mandate treating code context strictly as inert data to be analyzed, resisting prompt injection attempts embedded inside code comments or README files.
 
 ---
 
@@ -201,11 +205,18 @@ pytest -v tests/
 
 ### Verified Test Suites
 
-- **Security & Scanner Tests** (`tests/test_scanner_security.py`): URL validation, SSRF blocking, argument injection defense, symlink flags.
-- **Authentication & IDOR Tests** (`tests/test_auth_api.py`): Password hashing, JWT signing/expiry, duplicate handling, per-user repository and session authorization.
-- **Graph Batching & Scalability Tests** (`tests/test_sqlite_batching.py`): Batch insertions (`executemany`) and chunked deletions avoiding SQLite parameter limits.
-- **Worker & Ingestion Tests** (`tests/test_ingestion_worker.py`, `tests/test_vector_worker.py`): End-to-end task execution, idempotent re-indexing, and progress publishing.
-- **RAG & Search Tests** (`tests/test_prompt_builder.py`, `tests/test_chat_endpoints.py`, `tests/test_search_endpoints.py`): XML boundary formatting, chunk budget management, and semantic retrieval.
+* **Security & Scanner Tests** (`tests/test_scanner_security.py`): URL validation, SSRF blocking, argument injection defense, symlink flags.
+* **Authentication & IDOR Tests** (`tests/test_auth_api.py`): Password hashing, JWT signing/expiry, duplicate handling, per-user repository and session authorization.
+* **Graph Batching & Scalability Tests** (`tests/test_sqlite_batching.py`): Batch insertions (`executemany`) and chunked deletions avoiding SQLite parameter limits.
+* **Worker & Ingestion Tests** (`tests/test_ingestion_worker.py`, `tests/test_vector_worker.py`): End-to-end task execution, idempotent re-indexing, and progress publishing.
+* **RAG & Search Tests** (`tests/test_prompt_builder.py`, `tests/test_chat_endpoints.py`, `tests/test_search_endpoints.py`): XML boundary formatting, chunk budget management, and semantic retrieval.
+
+---
+
+## Contributors
+
+* [Nikhil Singh](https://github.com/s-nikhil2005)
+* [tigpy](https://github.com/tigpy)
 
 ---
 
