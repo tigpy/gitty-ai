@@ -48,6 +48,7 @@ The GITTY-AI frontend is a high-density, real-time code intelligence workstation
 The primary workstation combines the 2D Force-Directed Graph Canvas, Hierarchical Source Artifact Explorer, Depth-Filtered Telemetry Matrix, and AI Reasoning Core.
 
 ![GITTY-AI Cockpit Dashboard](docs/assets/readme/dashboard.png)
+![GITTY-AI Call Paths](docs/assets/readme/call_paths.png)
 
 ---
 
