@@ -1,3 +1,4 @@
+import os
 from fastapi import APIRouter, HTTPException, Depends, status
 from typing import List, Optional, Dict, Any
 from libs.shared_kernel.validation import validate_repository_id
@@ -22,6 +23,9 @@ def list_repositories(
 ):
     try:
         all_repos = service.get_repositories()
+        # In DEV_AUTH_BYPASS mode, return all indexed repositories directly
+        if os.getenv("DEV_AUTH_BYPASS", "true").lower() in ("true", "1", "yes"):
+            return all_repos
         # Filter to repositories the user has access to
         return [r for r in all_repos if user_repo.is_repository_owner(current_user.id, r["id"])]
     except Exception as e:

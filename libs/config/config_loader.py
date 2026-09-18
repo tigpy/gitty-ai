@@ -4,15 +4,6 @@ from typing import Optional
 class SystemSettings(BaseSettings):
     ENV: str = "development"
 
-    # CORS — comma-separated list of allowed origins.
-    # Default covers local frontend dev server; override in staging/prod via env var.
-    # Example: CORS_ORIGINS="https://app.mysite.com,https://staging.mysite.com"
-    CORS_ORIGINS_RAW: str = "http://localhost:5173"
-
-    @property
-    def CORS_ORIGINS(self) -> list:
-        return [o.strip() for o in self.CORS_ORIGINS_RAW.split(",") if o.strip()]
-
     # Cache / Session Store
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
@@ -47,7 +38,7 @@ class SystemSettings(BaseSettings):
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
 
     # CORS Configuration
-    CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
+    CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000"
 
     # Architecture Smell Thresholds
     GITTY_SMELL_FAN_IN_THRESHOLD: int = 10

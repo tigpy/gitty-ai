@@ -43,7 +43,25 @@ app = FastAPI(
     version="1.0.0",
 )
 
-cors_origins = [o.strip() for o in getattr(settings, "CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",") if o.strip()]
+raw_origins = getattr(settings, "CORS_ORIGINS", "")
+if isinstance(raw_origins, list):
+    cors_origins = [str(o).strip().rstrip("/") for o in raw_origins if str(o).strip()]
+elif isinstance(raw_origins, str):
+    cors_origins = [o.strip().rstrip("/") for o in raw_origins.split(",") if o.strip()]
+else:
+    cors_origins = []
+
+# In development/local environments, ensure localhost and 127.0.0.1 are always permitted
+if getattr(settings, "ENV", "development").lower() != "production":
+    dev_origins = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+    for origin in dev_origins:
+        if origin not in cors_origins:
+            cors_origins.append(origin)
 
 app.add_middleware(
     CORSMiddleware,

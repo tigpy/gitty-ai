@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import type { Repository, GraphNode } from '../../types';
 import { 
   Folder, 
@@ -285,14 +285,14 @@ export const RepositorySidebar: React.FC<SidebarProps> = ({
         </span>
       </div>
 
-      {/* 2. Ingest Target Repo (Compact 32px inputs) */}
+      {/* 2. Ingest Target Repo (Compact 31px inputs, ~102px total) */}
       <div style={{
-        padding: '8px 12px',
+        padding: '7px 12px',
         borderBottom: '1px solid var(--hairline)',
         background: 'var(--bg-panel)',
         flexShrink: 0
       }}>
-        <div className="tech-label" style={{ marginBottom: '5px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+        <div className="tech-label" style={{ marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '5px' }}>
           <Terminal size={10} style={{ color: 'var(--accent-amber)' }} />
           <span>TARGET REPOSITORY</span>
         </div>
@@ -304,7 +304,7 @@ export const RepositorySidebar: React.FC<SidebarProps> = ({
             onChange={(e) => setUrlInput(e.target.value)}
             disabled={analyzing}
             className="console-input"
-            style={{ width: '100%', height: '32px', fontSize: '11px' }}
+            style={{ width: '100%', height: '31px', fontSize: '11px' }}
           />
           <button
             type="submit"
@@ -313,7 +313,7 @@ export const RepositorySidebar: React.FC<SidebarProps> = ({
             style={{
               justifyContent: 'center',
               width: '100%',
-              height: '32px',
+              height: '31px',
               fontSize: '10.5px',
               opacity: analyzing || !urlInput.trim() ? 0.6 : 1,
               cursor: analyzing || !urlInput.trim() ? 'not-allowed' : 'pointer'
@@ -324,16 +324,16 @@ export const RepositorySidebar: React.FC<SidebarProps> = ({
         </form>
       </div>
 
-      {/* 3. Target Repositories List (Compact Rows, 32px height) */}
+      {/* 3. Target Repositories List (Compact 30px rows, maxHeight ~100px) */}
       <div style={{
-        padding: '8px 12px',
+        padding: '6px 12px',
         borderBottom: '1px solid var(--hairline)',
-        maxHeight: '124px',
+        maxHeight: '100px',
         overflowY: 'auto',
         background: 'var(--bg-panel)',
         flexShrink: 0
       }}>
-        <div className="tech-label" style={{ marginBottom: '5px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="tech-label" style={{ marginBottom: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span>TARGETS</span>
           <span className="mono-num" style={{ color: 'var(--accent-amber-bright)' }}>
             {String(repos.length).padStart(2, '0')}
@@ -361,8 +361,8 @@ export const RepositorySidebar: React.FC<SidebarProps> = ({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    padding: '4px 7px',
-                    height: '32px',
+                    padding: '3px 7px',
+                    height: '30px',
                     borderRadius: '4px',
                     cursor: 'pointer',
                     background: isSelected ? 'rgba(240, 164, 34, 0.08)' : 'transparent',
@@ -440,24 +440,24 @@ export const RepositorySidebar: React.FC<SidebarProps> = ({
         )}
       </div>
 
-      {/* 4. HUD Graph Overlays (Compact 2x2 Matrix) */}
+      {/* 4. HUD Graph Overlays (Compact 2x2 Matrix, target height ~85px) */}
       <div style={{
-        padding: '8px 12px',
+        padding: '5px 12px 6px 12px',
         borderBottom: '1px solid var(--hairline)',
         background: 'var(--bg-panel)',
         flexShrink: 0
       }}>
-        <div className="tech-label" style={{ marginBottom: '6px' }}>
+        <div className="tech-label" style={{ marginBottom: '3px' }}>
           <span>HUD GRAPH OVERLAYS</span>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3px' }}>
           <button
             onClick={() => onToggleOverlay('security')}
             className={`console-btn ${overlays.security ? 'active' : ''}`}
             style={{
-              padding: '4px 6px',
-              height: '30px',
+              padding: '2px 6px',
+              height: '27px',
               fontSize: '9.5px',
               justifyContent: 'center',
               borderColor: overlays.security ? 'rgba(239, 68, 68, 0.5)' : undefined,
@@ -472,7 +472,7 @@ export const RepositorySidebar: React.FC<SidebarProps> = ({
           <button
             onClick={() => onToggleOverlay('deadCode')}
             className={`console-btn ${overlays.deadCode ? 'active' : ''}`}
-            style={{ padding: '4px 6px', height: '30px', fontSize: '9.5px', justifyContent: 'center' }}
+            style={{ padding: '2px 6px', height: '27px', fontSize: '9.5px', justifyContent: 'center' }}
           >
             <Trash2 size={11} style={{ color: overlays.deadCode ? 'var(--accent-amber-bright)' : 'inherit' }} />
             DEAD CODE
@@ -481,7 +481,7 @@ export const RepositorySidebar: React.FC<SidebarProps> = ({
           <button
             onClick={() => onToggleOverlay('smells')}
             className={`console-btn ${overlays.smells ? 'active' : ''}`}
-            style={{ padding: '4px 6px', height: '30px', fontSize: '9.5px', justifyContent: 'center' }}
+            style={{ padding: '2px 6px', height: '27px', fontSize: '9.5px', justifyContent: 'center' }}
           >
             <Activity size={11} style={{ color: overlays.smells ? 'var(--accent-orange)' : 'inherit' }} />
             ARCH SMELLS
@@ -490,7 +490,7 @@ export const RepositorySidebar: React.FC<SidebarProps> = ({
           <button
             onClick={() => onToggleOverlay('callGraph')}
             className={`console-btn ${overlays.callGraph ? 'active' : ''}`}
-            style={{ padding: '4px 6px', height: '30px', fontSize: '9.5px', justifyContent: 'center' }}
+            style={{ padding: '2px 6px', height: '27px', fontSize: '9.5px', justifyContent: 'center' }}
           >
             <Compass size={11} style={{ color: overlays.callGraph ? 'var(--accent-amber-bright)' : 'inherit' }} />
             CALL PATHS
@@ -498,20 +498,20 @@ export const RepositorySidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      {/* 5. Source Artifact Explorer (Primary Scrollable Region) */}
+      {/* 5. Source Artifact Explorer (Search Header fixed, Tree scrollable) */}
       <div style={{
-        padding: '8px 12px 5px 12px',
+        padding: '6px 12px 5px 12px',
         borderBottom: '1px solid var(--hairline-subtle, rgba(232,235,239,0.06))',
         flexShrink: 0
       }}>
-        <div className="tech-label" style={{ marginBottom: '5px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="tech-label" style={{ marginBottom: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span>SOURCE ARTIFACTS</span>
           <span className="mono-num" style={{ color: 'var(--accent-amber-bright)' }}>
             {filteredFiles.length} / {files.length}
           </span>
         </div>
         <div style={{ position: 'relative' }}>
-          <Search size={12} style={{ position: 'absolute', left: '7px', top: '9px', color: 'var(--ink-muted)' }} />
+          <Search size={12} style={{ position: 'absolute', left: '7px', top: '8px', color: 'var(--ink-muted)' }} />
           <input 
             type="text" 
             placeholder="Search source files..."
@@ -523,7 +523,7 @@ export const RepositorySidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      {/* Hierarchical Source Tree (Absorbs remaining vertical overflow) */}
+      {/* Hierarchical Source Tree (Consumes all remaining vertical space) */}
       <div style={{
         flex: 1,
         minHeight: 0,
@@ -548,22 +548,22 @@ export const RepositorySidebar: React.FC<SidebarProps> = ({
         )}
       </div>
 
-      {/* 6. Compact Fixed Visual Legend (Height ~64px) */}
+      {/* 6. Compact Fixed Visual Legend (Target Height 56-60px, configured at 58px) */}
       <div style={{
-        height: '64px',
-        padding: '6px 12px',
+        height: '58px',
+        padding: '5px 12px',
         borderTop: '1px solid var(--hairline)',
         background: 'var(--bg-panel)',
         fontFamily: 'var(--font-mono)',
-        fontSize: '9.5px',
+        fontSize: '9px',
         color: 'var(--ink-muted)',
         flexShrink: 0,
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'center'
       }}>
-        <div className="tech-label" style={{ marginBottom: '4px', fontSize: '9px' }}>GRAPH MATRIX LEGEND</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
+        <div className="tech-label" style={{ marginBottom: '3px', fontSize: '8.5px' }}>GRAPH MATRIX LEGEND</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '3px 4px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
             <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#4F46E5', flexShrink: 0 }} />
             <span>REPO</span>

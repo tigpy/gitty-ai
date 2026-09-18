@@ -6,9 +6,8 @@ import { GraphToolbar } from '../components/graph/GraphToolbar';
 import { NodeInspector } from '../components/graph/NodeInspector';
 import { ChatPanel } from '../components/chat/ChatPanel';
 import { TelemetryBar } from '../components/common/TelemetryBar';
-import { AuthModal } from '../components/auth/AuthModal';
 import { api } from '../services/api';
-import type { Repository, GraphNode, GraphEdge, NodeDetails, User } from '../types';
+import type { Repository, GraphNode, GraphEdge, NodeDetails } from '../types';
 import { Activity, AlertTriangle } from 'lucide-react';
 
 export const Dashboard: React.FC = () => {
@@ -18,10 +17,6 @@ export const Dashboard: React.FC = () => {
   
   // Navigation tabs
   const [activeTab, setActiveTab] = useState<NavTab>('GRAPH');
-
-  // User & Auth State
-  const [user, setUser] = useState<User | null>(null);
-  const [isAuthOpen, setIsAuthOpen] = useState(false);
 
   // Active Analysis State
   const [analyzing, setAnalyzing] = useState(false);
@@ -49,43 +44,6 @@ export const Dashboard: React.FC = () => {
     smells: true,
     callGraph: false
   });
-
-  // Check user authentication on mount
-  useEffect(() => {
-    if (api.getToken()) {
-      api.getMe()
-        .then(setUser)
-        .catch(() => {
-          api.clearToken();
-          setUser(null);
-        });
-    }
-  }, []);
-
-  const handleAuthSuccess = async (authenticatedUser: User) => {
-    setUser(authenticatedUser);
-    try {
-      const refreshed = await api.getRepositories();
-      setRepos(refreshed);
-      if (refreshed.length > 0 && !selectedRepo) {
-        setSelectedRepo(refreshed[0]);
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const handleLogout = async () => {
-    api.clearToken();
-    setUser(null);
-    try {
-      const refreshed = await api.getRepositories();
-      setRepos(refreshed);
-      onSelectRepo(refreshed[0] || null);
-    } catch (e) {
-      console.error(e);
-    }
-  };
 
   // Load repositories on mount
   useEffect(() => {
@@ -156,11 +114,6 @@ export const Dashboard: React.FC = () => {
   const handleStartAnalyze = async (url: string) => {
     // Prevent duplicate analysis requests
     if (analyzing) return;
-
-    if (!user && !api.getToken()) {
-      setIsAuthOpen(true);
-      return;
-    }
 
     const rawName = url.replace(/\/$/, '').split('/').pop() || 'Repository';
     const cleanRepoName = rawName.replace('.git', '');
@@ -325,17 +278,7 @@ export const Dashboard: React.FC = () => {
         activeTab={activeTab}
         onSelectTab={handleTabSelect}
         selectedRepo={selectedRepo}
-        user={user}
-        onOpenAuth={() => setIsAuthOpen(true)}
-        onLogout={handleLogout}
         systemStatus="ONLINE"
-      />
-
-      {/* Auth Modal for Login/Signup */}
-      <AuthModal
-        isOpen={isAuthOpen}
-        onClose={() => setIsAuthOpen(false)}
-        onAuthSuccess={handleAuthSuccess}
       />
 
       {/* Main Console Body: 3-Column Layout */}

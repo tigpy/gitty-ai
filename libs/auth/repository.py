@@ -120,7 +120,17 @@ class UserRepository:
             row = cursor.fetchone()
             return dict(row) if row else None
 
+    def _ensure_dev_user(self) -> None:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT OR IGNORE INTO users (id, username, email, password_hash, salt, created_at, is_active)
+                VALUES (?, ?, ?, ?, ?, ?, 1)
+            """, ("dev-user-local", "developer", "dev@gitty.local", "dev_bypass", "salt", datetime.now(timezone.utc).isoformat()))
+
     def assign_repository_owner(self, user_id: str, repository_id: str, role: str = "owner") -> None:
+        if user_id == "dev-user-local":
+            self._ensure_dev_user()
         created_at = datetime.now(timezone.utc).isoformat()
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -131,6 +141,8 @@ class UserRepository:
             """, (user_id, repository_id, role, created_at))
 
     def is_repository_owner(self, user_id: str, repository_id: str) -> bool:
+        if os.getenv("DEV_AUTH_BYPASS", "true").lower() in ("true", "1", "yes"):
+            return True
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -153,6 +165,8 @@ class UserRepository:
             return [row["repository_id"] for row in cursor.fetchall()]
 
     def assign_session_owner(self, user_id: str, session_id: str) -> None:
+        if user_id == "dev-user-local":
+            self._ensure_dev_user()
         created_at = datetime.now(timezone.utc).isoformat()
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -163,6 +177,8 @@ class UserRepository:
             """, (user_id, session_id, created_at))
 
     def is_session_owner(self, user_id: str, session_id: str) -> bool:
+        if os.getenv("DEV_AUTH_BYPASS", "true").lower() in ("true", "1", "yes"):
+            return True
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""

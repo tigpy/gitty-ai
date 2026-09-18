@@ -1,10 +1,7 @@
-﻿import React from 'react';
+import React from 'react';
 import { GittyLogo } from '../common/GittyLogo';
-import type { User, Repository } from '../../types';
+import type { Repository } from '../../types';
 import { 
-  User as UserIcon, 
-  LogIn, 
-  LogOut, 
   Terminal, 
   Share2, 
   ShieldAlert, 
@@ -18,9 +15,6 @@ interface TopNavProps {
   activeTab: NavTab;
   onSelectTab: (tab: NavTab) => void;
   selectedRepo: Repository | null;
-  user: User | null;
-  onOpenAuth: () => void;
-  onLogout: () => void;
   systemStatus?: string;
 }
 
@@ -28,9 +22,6 @@ export const TopNav: React.FC<TopNavProps> = ({
   activeTab,
   onSelectTab,
   selectedRepo,
-  user,
-  onOpenAuth,
-  onLogout,
   systemStatus = 'ONLINE'
 }) => {
   const tabs: { id: NavTab; label: string; icon: React.ReactNode }[] = [
@@ -135,7 +126,7 @@ export const TopNav: React.FC<TopNavProps> = ({
         })}
       </nav>
 
-      {/* Right: Telemetry Status & Authentication */}
+      {/* Right: Telemetry Status */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
         {/* System Online Badge (Status Green Strictly for System State) */}
         <div style={{
@@ -155,47 +146,6 @@ export const TopNav: React.FC<TopNavProps> = ({
           <span className="status-dot status-dot-green" />
           {systemStatus}
         </div>
-
-        {/* User Account / Sign In */}
-        {user ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              fontFamily: 'var(--font-mono)',
-              fontSize: '11px',
-              color: 'var(--ink-secondary)',
-              background: 'var(--bg-ground)',
-              border: '1px solid var(--hairline)',
-              padding: '4px 10px',
-              borderRadius: '4px'
-            }}>
-              <UserIcon size={12} style={{ color: 'var(--accent-amber)' }} />
-              <span>{user.username}</span>
-            </div>
-            <button
-              onClick={onLogout}
-              title="Sign Out"
-              className="console-btn"
-              style={{ padding: '5px 8px' }}
-            >
-              <LogOut size={13} />
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={onOpenAuth}
-            className="console-btn"
-            style={{
-              borderColor: 'rgba(240, 164, 34, 0.4)',
-              color: 'var(--accent-amber-bright)'
-            }}
-          >
-            <LogIn size={13} />
-            AUTHENTICATE
-          </button>
-        )}
       </div>
     </header>
   );

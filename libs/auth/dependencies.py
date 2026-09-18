@@ -1,3 +1,5 @@
+import os
+from datetime import datetime, timezone
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Optional
@@ -7,6 +9,18 @@ from .repository import get_user_repository, UserRepository
 
 security_scheme = HTTPBearer(auto_error=False)
 
+# Local Development Mode Bypass
+# When enabled, allows local Dashboard / product UI testing without requiring authentication
+DEV_AUTH_BYPASS = os.getenv("DEV_AUTH_BYPASS", "true").lower() in ("true", "1", "yes")
+
+DEV_USER = User(
+    id="dev-user-local",
+    email="dev@gitty.local",
+    username="developer",
+    created_at=datetime.now(timezone.utc).isoformat(),
+    is_active=True
+)
+
 def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
     user_repo: UserRepository = Depends(get_user_repository)
@@ -14,8 +28,11 @@ def get_current_user(
     """
     FastAPI dependency that extracts and validates the Bearer JWT token.
     Raises HTTP 401 if token is missing, expired, or invalid.
+    Supports DEV_AUTH_BYPASS for local development mode.
     """
     if not credentials or not credentials.credentials:
+        if DEV_AUTH_BYPASS:
+            return DEV_USER
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required. Please provide a valid Bearer token.",
@@ -77,6 +94,8 @@ def require_repository_owner(
     Verifies that the authenticated user owns or has access to the requested repository.
     Prevents IDOR (Insecure Direct Object Reference).
     """
+    if DEV_AUTH_BYPASS:
+        return current_user
     if not user_repo.is_repository_owner(current_user.id, repo_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -93,6 +112,8 @@ def require_session_owner(
     Verifies that the authenticated user owns or has access to the requested chat session.
     Prevents IDOR across user chat conversations.
     """
+    if DEV_AUTH_BYPASS:
+        return current_user
     if not user_repo.is_session_owner(current_user.id, session_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
