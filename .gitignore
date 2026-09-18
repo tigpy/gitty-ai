@@ -1,4 +1,7 @@
+# Node dependencies
 node_modules/
+
+# Python
 venv/
 .venv/
 __pycache__/
@@ -6,19 +9,65 @@ __pycache__/
 *.pyo
 *.pyd
 .pytest_cache/
-gitty_graph.db*
-data/
+.mypy_cache/
+.ruff_cache/
+
+# Frontend / build caches
+dist/
+build/
+.vite/
+.next/
+.cache/
+.parcel-cache/
+*.tsbuildinfo
+
+# Coverage / test artifacts
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+nosetests.xml
+*.cover
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Environment files
 .env
 .env.*
+!.env.example
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# IDE / editor
+.vscode/
+.idea/
+*.code-workspace
+*.swp
+*.swo
+*~
+
+# Project-specific ignored data
+data/
+GITTY-AI/
+gitty_graph.db*
+.gitty_graph.db.swp
 *.key
 *.pem
 credentials.json
-.gitty_graph.db.swp
-dist/
-build/
-.coverage
-htmlcov/
-*.log
-GITTY-AI/
-*.db
-*.sqlite
