@@ -1,5 +1,4 @@
 import React from 'react';
-import logoSrc from '../../assets/gitty-ai-logo.jpeg';
 
 interface GittyLogoProps {
   height?: number;
@@ -8,7 +7,7 @@ interface GittyLogoProps {
 }
 
 export const GittyLogo: React.FC<GittyLogoProps> = ({ 
-  height = 30, 
+  height = 24, 
   className = '',
   showSubtitle = false 
 }) => {
@@ -17,38 +16,53 @@ export const GittyLogo: React.FC<GittyLogoProps> = ({
       className={`gitty-brand-mark ${className}`}
       style={{ 
         display: 'inline-flex', 
-        flexDirection: 'column',
-        alignItems: 'flex-start',
-        gap: '3px',
+        alignItems: 'center',
+        gap: '9px',
         userSelect: 'none'
       }}
     >
       <img
-        src={logoSrc}
-        alt="Gitty AI"
+        src="/gitty-title.png"
+        alt="GITTY"
         style={{
           height: `${height}px`,
           width: 'auto',
           objectFit: 'contain',
-          display: 'block'
+          display: 'block',
+          flexShrink: 0
         }}
         loading="eager"
       />
-      {showSubtitle && (
+      <div style={{ display: 'inline-flex', flexDirection: 'column', gap: '2px' }}>
         <span 
           style={{
-            fontFamily: "'JetBrains Mono', monospace",
-            fontSize: '9.5px',
+            fontFamily: "var(--font-heading, 'Space Grotesk', sans-serif)",
+            fontSize: '15px',
+            fontWeight: 700,
             letterSpacing: '0.08em',
-            textTransform: 'uppercase',
-            color: 'var(--ink-muted, #6B7481)',
-            paddingLeft: '2px',
-            lineHeight: 1
+            color: 'var(--ink-primary, #E8EBEF)',
+            lineHeight: 1,
+            whiteSpace: 'nowrap'
           }}
         >
-          REPOSITORY INTELLIGENCE
+          GITTY AI
         </span>
-      )}
+        {showSubtitle && (
+          <span 
+            style={{
+              fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+              fontSize: '9px',
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              color: 'var(--ink-muted, #6B7481)',
+              lineHeight: 1
+            }}
+          >
+            REPOSITORY INTELLIGENCE
+          </span>
+        )}
+      </div>
     </div>
   );
 };
+

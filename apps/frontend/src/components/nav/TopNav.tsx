@@ -46,7 +46,7 @@ export const TopNav: React.FC<TopNavProps> = ({
     }}>
       {/* Left: Brand Identity & Active Repository Badge */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-        <GittyLogo height={28} />
+        <GittyLogo height={24} />
 
         <div style={{ 
           height: '20px', 
