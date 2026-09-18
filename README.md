@@ -1,87 +1,243 @@
 # GITTY-AI
 
-> **AI-Powered Code Intelligence & Cybersecurity Platform**
-> *Deterministic AST parsing, property graph dependency mapping, vector semantic search, and real-time vulnerability detection.*
+<div align="center">
+
+![GITTY-AI Header](docs/assets/readme/architecture.png)
+
+### Deterministic Code Intelligence & Cybersecurity Cockpit
+
+[![Python Version](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/React-19.0-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Celery](https://img.shields.io/badge/Celery-5.3+-37814A?style=flat-square&logo=celery&logoColor=white)](https://docs.celeryq.dev/)
+[![Qdrant](https://img.shields.io/badge/Qdrant-Vector%20DB-DC2626?style=flat-square&logo=qdrant&logoColor=white)](https://qdrant.tech/)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com/)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](#license)
+
+**[Explore Cockpit](#cockpit-showcase)** • **[System Architecture](#system-architecture)** • **[How It Works](#how-it-works)** • **[Quickstart](#getting-started)** • **[Security Model](#security-architecture)** • **[Test Suite](#verification--testing)**
+
+</div>
 
 ---
 
 ## Overview
 
-**GITTY-AI** is a code intelligence platform that bridges source code structure, dependency graphs, and cybersecurity analysis. Rather than treating code merely as flat text chunks within an LLM context window, GITTY-AI constructs a typed property knowledge graph of the codebase (`Files`, `Classes`, `Functions`, `Imports`, `Calls`, and `Security Findings`) and couples it with dense vector embeddings for accurate semantic code retrieval and AI-assisted chat.
+Modern software repositories are complex, interconnected graphs of modules, classes, call hierarchies, external dependencies, and potential security vulnerabilities. Treating a codebase as flat text snippets inside an LLM context window causes hallucinations, misses transitive call relationships, and fails to diagnose architectural security flaws.
 
-### Core Capabilities
+**GITTY-AI** is a code intelligence and cybersecurity platform that bridges deterministic AST parsing, property graph dependency mapping, dense vector semantic retrieval, and live vulnerability intelligence into an interactive real-time cockpit.
 
-* **Secure Ingestion Pipeline**: Shallow cloning (`--depth=1`) with SSRF filtering, command flag defense (`--`), symlink disabling (`core.symlinks=false`), and execution timeouts.
-* **AST & Dependency Graph**: Extracts code entities, function definitions, class hierarchies, and call relationships into SQLite or Neo4j.
-* **Vulnerability Intelligence**: Live query integration with the **Google OSV (Open Source Vulnerabilities)** database, complemented by static detection for hardcoded secrets and hazardous APIs (`eval`, `exec`, `shell=True`).
-* **Semantic Vector Search & RAG**: 384-dimensional dense code embeddings indexed in Qdrant with real cosine similarity score propagation and SQLite embedding caching.
-* **Prompt Injection Hardening**: XML boundary fencing (`<repository_untrusted_context>`) and security system prompts preventing repository code comments from hijacking LLM reasoning.
-* **Full-Stack Authentication**: Native RFC 7519 HMAC-SHA256 JWT tokens and PBKDF2-HMAC-SHA256 password hashing (600,000 iterations) with strict per-user IDOR data isolation.
-* **Modern Interactive UI**: React 19 + TypeScript + Vite SPA featuring interactive graph canvas, live Server-Sent Events (SSE) log terminal, and AI chat assistant with clickable symbol citations.
+When a repository is ingested, GITTY-AI clones it within a hardened sandbox, constructs a typed property knowledge graph (`Repository`, `File`, `Class`, `Function`, `Import`, `Call`), identifies security vulnerabilities using the Google OSV database and static taint rules, generates 384-dimensional vector embeddings in Qdrant, and powers an AI reasoning assistant fortified against prompt injection.
+
+```
+Git Repository ──► Hardened Sandbox ──► Multi-Language AST ──► Property Knowledge Graph
+                                    ──► OSV & Taint Scanner ──► Security Findings Matrix
+                                    ──► Dense Embeddings   ──► Qdrant Vector Engine
+                                                                       │
+                                                                       ▼
+                                                          GITTY-AI Unified Cockpit
+```
+
+---
+
+## Cockpit Showcase
+
+The GITTY-AI frontend is a high-density, real-time code intelligence workstation designed for security engineers and software architects.
+
+### Unified Engineering Cockpit
+The primary workstation combines the 2D Force-Directed Graph Canvas, Hierarchical Source Artifact Explorer, Depth-Filtered Telemetry Matrix, and AI Reasoning Core.
+
+![GITTY-AI Cockpit Dashboard](docs/assets/readme/dashboard.png)
+
+---
+
+### Cockpit Subsystems
+
+| Subsystem | Screenshot | Description |
+| :--- | :--- | :--- |
+| **Interactive Graph Matrix** | ![Graph Matrix](docs/assets/readme/graph-matrix.png) | High-performance 2D canvas visualizing file and symbol topology. Features dynamic physics simulation, Level-of-Detail (LOD) node clustering, and progressive child expansion. |
+| **Source Artifact Explorer** | ![Source Explorer](docs/assets/readme/source-explorer.png) | High-density hierarchical directory tree showing code artifacts, file-level node counts, active target repositories, and real-time HUD display filters. |
+| **Security & Vulnerability HUD** | ![Security HUD](docs/assets/readme/security-hud.png) | Live vulnerability matrix displaying OSV CVE advisories, hazardous API calls (`eval`, `exec`, `shell=True`), hardcoded secret detections, and severity distribution. |
+| **Reactor Core & AI Console** | ![Reactor Core](docs/assets/readme/gitty-core.png) | RAG-driven contextual code reasoning interface. Fenced with XML boundaries and enriched with direct AST symbol citations and similarity scores. |
+
+---
+
+## Key Capabilities
+
+* **Secure Ingestion Engine**:
+  * Shallow cloning (`--depth=1`) with configurable execution timeouts.
+  * Strict loopback, RFC 1918, and AWS/GCP link-local metadata SSRF blocking.
+  * Git command flag-injection defense (`--`) and symlink neutralization (`-c core.symlinks=false`).
+
+* **Multi-Language AST Extraction**:
+  * Native Python AST parser extracting functions, classes, decorators, docstrings, imports, and call sites.
+  * Tree-sitter parsers supporting JavaScript, TypeScript, and Java syntax trees.
+  * Automated dead-code detection (`DeadCodeDetectionService`) for uncalled functions and orphan classes.
+
+* **Vulnerability & Secret Intelligence**:
+  * Real-time querying against the **Google OSV (Open Source Vulnerabilities)** API for known package CVEs.
+  * High-entropy regex pattern scanning for exposed API keys, private tokens, and credentials.
+  * Hazardous API heuristic scanning (`eval`, `exec`, `shell=True`, `pickle`, `MD5`, `SHA1`, `DEBUG=True`).
+
+* **Dual Property Graph Backends**:
+  * **SQLite Engine**: Zero-dependency, lightweight, embedded graph backend with batched execution (`executemany`) and parameter limit safeguards.
+  * **Neo4j Cluster**: Enterprise-grade Cypher property graph backend for large-scale graph traversals.
+
+* **Hybrid Vector Search & RAG**:
+  * 384-dimensional dense code embeddings indexed in **Qdrant**.
+  * Cosine similarity scoring with SQLite embedding caching for deduplication.
+  * XML boundary fencing (`<repository_untrusted_context>`) to neutralize prompt injection attacks.
+
+* **Real-Time Reactive Streaming**:
+  * Asynchronous task processing via **Celery** and **RabbitMQ**.
+  * Real-time progress and terminal log broadcasting using **Redis Pub/Sub** and **Server-Sent Events (SSE)**.
 
 ---
 
 ## System Architecture
 
-```
-+-------------------------------------------------------------+
-|                      CLIENT LAYER                           |
-|             React 19 + Vite + Lucide SPA                    |
-|       (Interactive Graph, Live SSE Logs, Chat Assistant)    |
-+------------------------------+------------------------------+
-                               | HTTPS / SSE (with Bearer JWT)
-+------------------------------v------------------------------+
-|                    FASTAPI API GATEWAY                      |
-|  - RFC 7519 JWT Auth & PBKDF2 Password Hashing              |
-|  - IDOR-Protected Resource Ownership Checks                 |
-|  - REST Endpoints (/repositories, /graph, /chat, /search)  |
-|  - Async Redis SSE Progress Streaming                       |
-+------------------------------+------------------------------+
-                               | Task Dispatch (AMQP)
-+------------------------------v------------------------------+
-|                    CELERY WORKER FABRIC                     |
-|  - Git Clone (SSRF & Flag-Injection Hardened)               |
-|  - AST & Symbol Extraction (Python AST)                     |
-|  - Dependency Risk Detection (Google OSV API + Fallback)    |
-|  - Secret Detection & Dangerous API Scanning                |
-|  - Dead Code Detection (DeadCodeDetectionService)           |
-|  - Graph Construction & Bulk Commit                         |
-|  - Semantic Code Chunking & Embeddings                       |
-+-----------+--------------------+--------------------+-------+
-            |                    |                    |
-+-----------v-----------++-------v--------++----------v-------+
-|     GRAPH STORE       ||  VECTOR STORE  ||   CACHE & QUEUE  |
-| SQLite (Zero-dep)     || Qdrant Vector  || Redis (Pub/Sub)  |
-| or Neo4j (Cypher)     || (Cosine 384-d) || RabbitMQ (AMQP)  |
-+-----------------------++----------------++------------------+
-```
+The following diagram illustrates the end-to-end dataflow across client layers, API gateways, worker tasks, databases, and external intelligence providers:
 
-For complete architectural details, see [System Architecture](docs/architecture.md).
+![GITTY-AI System Architecture](docs/assets/readme/architecture.png)
+
+### High-Level Architecture Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           CLIENT INTERFACE                              │
+│              React 19 • TypeScript • Vite • Tailwind CSS                │
+│    [ Interactive Graph ]   [ Source Explorer ]   [ Reactor Core RAG ]   │
+└────────────────────────────────────┬────────────────────────────────────┘
+                                     │ HTTPS / SSE (Bearer JWT)
+┌────────────────────────────────────▼────────────────────────────────────┐
+│                          FASTAPI API GATEWAY                            │
+│  - RFC 7519 JWT Authentication & PBKDF2 Password Hashing (600k rounds)  │
+│  - IDOR-Protected Per-User Resource Authorization                       │
+│  - REST Endpoints (/repositories, /graph, /chat, /search)               │
+│  - Redis Pub/Sub Server-Sent Events (SSE) Multiplexer                   │
+└────────────────────────────────────┬────────────────────────────────────┘
+                                     │ AMQP Task Dispatch
+┌────────────────────────────────────▼────────────────────────────────────┐
+│                          CELERY WORKER FABRIC                           │
+│  ┌─────────────────────────┐  ┌──────────────────────────────────────┐  │
+│  │ Hardened Ingestion      │  │ AST Symbol Extraction                │  │
+│  │ (SSRF & Flag Guard)     │  │ (Python AST, JS/TS/Java Tree-sitter) │  │
+│  └────────────┬────────────┘  └──────────────────┬───────────────────┘  │
+│               │                                  │                      │
+│  ┌────────────▼────────────┐  ┌──────────────────▼───────────────────┐  │
+│  │ Vulnerability Engine    │  │ Semantic Embedding Pipeline          │  │
+│  │ (Google OSV API & Taint)│  │ (384-d Chunker & SQLite Cache)       │  │
+│  └─────────────────────────┘  └──────────────────────────────────────┘  │
+└───────────────┬──────────────────────────┬───────────────────────┬──────┘
+                │                          │                       │
+┌───────────────▼───────────┐┌─────────────▼─────────┐┌───────────▼───────┐
+│     GRAPH REPOSITORY      ││     VECTOR ENGINE     ││   MESSAGE FABRIC  │
+│ SQLite Graph (Zero-Dep)   ││ Qdrant Vector Database││ RabbitMQ (Tasks)  │
+│ or Neo4j (Cypher Engine)  ││ (384-d Cosine Metric) ││ Redis (SSE Stream)│
+└───────────────────────────┘└───────────────────────┘└───────────────────┘
+```
 
 ---
 
-## Quickstart Guide
+## How It Works
+
+When an analysis job is initiated, GITTY-AI executes a 10-step asynchronous pipeline:
+
+```
+ [1. Ingest] ──► [2. Manifests] ──► [3. OSV Query] ──► [4. Security Scan] ──► [5. Dead Code]
+      │
+      ▼
+ [6. AST Parse] ──► [7. Graph Commit] ──► [8. Chunk & Embed] ──► [9. Vector Upsert] ──► [10. SSE Complete]
+```
+
+1. **Repository Ingestion & Defense**: The URL is validated against SSRF blocklists (loopback, RFC 1918, cloud metadata) and command-injection patterns. Git performs a shallow clone (`--depth=1`) with symlinks disabled.
+2. **Dependency Manifest Discovery**: Scans for ecosystem manifest files (`requirements.txt`, `Pipfile`, `pyproject.toml`, `package.json`, `pom.xml`).
+3. **Google OSV Vulnerability Lookup**: Queries the live Google Open Source Vulnerabilities database for known CVEs and affected version ranges.
+4. **Static Taint & Secret Analysis**: Scans source files with regex entropy heuristics for exposed credentials and detects unsafe primitives (`eval`, `exec`, `shell=True`, `pickle`).
+5. **Dead Code Identification**: Analyzes intra-repository symbol references using `DeadCodeDetectionService` to highlight unused methods and unreachable classes.
+6. **Deterministic AST Parsing**: Traverses syntax trees across Python, JavaScript, TypeScript, and Java to extract code entities, imports, inheritance, and call sites.
+7. **Property Graph Construction**: Commits typed nodes (`Repository`, `File`, `Class`, `Function`, `Import`, `Call`) and edges (`CONTAINS`, `IMPORTS`, `CALLS`, `INHERITS`, `BELONGS_TO`) using batch transactions.
+8. **Semantic Chunking & Embedding**: Chunks code into logical blocks and produces dense 384-dimensional vector embeddings, cached in SQLite to avoid recomputing duplicates.
+9. **Qdrant Vector Indexing**: Upserts code embeddings and symbol metadata payloads into Qdrant collections.
+10. **SSE Synchronization**: Streams real-time progress events over Redis Pub/Sub to the frontend dashboard, immediately rendering the newly mapped topology.
+
+---
+
+## Technology Stack
+
+| Layer | Technologies | Purpose |
+| :--- | :--- | :--- |
+| **Frontend UI** | React 19, TypeScript, Vite, Tailwind CSS, Lucide React, Canvas API | High-performance interactive graph cockpit, live SSE event viewer, chat console |
+| **API Gateway** | FastAPI, Starlette, Pydantic v2, Uvicorn, Python 3.11+ | Asynchronous REST gateway, JWT security, SSE stream endpoints |
+| **Worker Fabric** | Celery, Kombu, RabbitMQ (AMQP) | Distributed task scheduling, background repository ingestion and parsing |
+| **Graph Storage** | SQLite (default embedded), Neo4j 5+ (optional cluster) | Typed code property graph, relationship mapping, dependency hierarchy |
+| **Vector Engine** | Qdrant, sentence-transformers (384-d dense vectors) | Semantic code search, RAG context retrieval, cosine similarity indexing |
+| **Cache & Bus** | Redis 7+ | Real-time Pub/Sub log streaming, Celery task state cache |
+| **Parsers** | Built-in Python `ast`, Tree-sitter (JS/TS/Java) | Deterministic symbol extraction, structural code intelligence |
+| **Vulnerability** | Google OSV API, Static Regex Entropy Heuristics | Dependency CVE auditing, secrets scanning, hazardous API detection |
+
+---
+
+## Project Structure
+
+```
+GITTY-AI/
+├── apps/
+│   ├── api-gateway/         # FastAPI REST service & SSE streaming endpoints
+│   │   ├── app/             # Application routers (auth, graph, chat, search, repos)
+│   │   └── tests/           # Gateway unit and integration tests
+│   ├── frontend/            # React 19 + TypeScript + Vite cockpit application
+│   │   ├── src/             # Components (GraphCanvas, RepositorySidebar, TopNav, Chat)
+│   │   └── public/          # Branding and static cockpit assets
+│   └── worker/              # Celery background worker tasks and ingestion pipeline
+│       └── tasks/           # Ingestion, AST parsing, OSV querying, vectorization
+├── libs/
+│   ├── ai/                  # RAG prompt builder, XML fencing, embedding generation
+│   ├── auth/                # PBKDF2 password hashing, JWT RFC 7519 tokens, user models
+│   ├── config/              # Centralized Pydantic application settings
+│   ├── events/              # Redis Pub/Sub event broadcasting and SSE abstractions
+│   ├── exceptions/          # Standardized domain exception hierarchy
+│   ├── graph/               # Graph database clients (SQLite batch client and Neo4j driver)
+│   ├── logging/             # Structured JSON logging configurations
+│   ├── models/              # Pydantic schemas (Graph, Security, Repository, User)
+│   └── scanner/             # AST parsers, OSV vulnerability client, dead code analyzer
+├── infrastructure/
+│   ├── compose/             # Docker Compose configurations (dev, staging, services)
+│   └── docker/              # Dockerfiles for gateway, worker, and frontend
+├── docs/
+│   └── assets/readme/       # Verified cockpit screenshots and architecture diagrams
+└── tests/                   # End-to-end and integration test suite (149 tests)
+```
+
+---
+
+## Getting Started
 
 ### Prerequisites
 
-* **Python 3.11+** or **Python 3.13**
+* **Python 3.11+** (or Python 3.12 / 3.13)
 * **Node.js 18+** and **npm**
-* **Git**
-* **Docker & Docker Compose** (for infrastructure services: Redis, RabbitMQ, Qdrant)
+* **Git** installed on your system path
+* **Docker & Docker Compose** (for Redis, RabbitMQ, and Qdrant)
 
 ---
 
-### Option A: Local Development (Recommended)
+### Step 1: Start Infrastructure Services
 
-#### 1. Start Infrastructure Services
-
-Launch Redis, RabbitMQ, and Qdrant using Docker Compose:
+Launch Redis, RabbitMQ, and Qdrant via Docker Compose:
 
 ```bash
 docker compose -f infrastructure/compose/docker-compose.yml up -d redis rabbitmq qdrant
 ```
 
-#### 2. Configure Python Virtual Environment
+Verify that all three services are healthy:
+* **Redis**: `localhost:6379`
+* **RabbitMQ**: `localhost:5672` (Management UI: `http://localhost:15672` default `guest/guest`)
+* **Qdrant**: `localhost:6333` (Web Dashboard: `http://localhost:6333/dashboard`)
+
+---
+
+### Step 2: Set Up Backend Virtual Environment
 
 ```bash
 # Create and activate virtual environment
@@ -93,13 +249,15 @@ python -m venv venv
 # Linux / macOS:
 source venv/bin/activate
 
-# Install dependencies
+# Install application dependencies and local libraries
 pip install -r apps/api-gateway/requirements.txt
 pip install -r apps/worker/requirements.txt
-pip install -e ./libs/config -e ./libs/logging -e ./libs/exceptions -e ./libs/models -e ./libs/graph -e ./libs/ai -e ./libs/events
+pip install -e ./libs/config -e ./libs/logging -e ./libs/exceptions -e ./libs/models -e ./libs/graph -e ./libs/ai -e ./libs/events -e ./libs/auth -e ./libs/scanner
 ```
 
-#### 3. Start the API Gateway
+---
+
+### Step 3: Run the API Gateway
 
 ```bash
 # Windows PowerShell:
@@ -110,11 +268,14 @@ python -m uvicorn app.main:app --app-dir apps/api-gateway --host 0.0.0.0 --port 
 PYTHONPATH=. python -m uvicorn app.main:app --app-dir apps/api-gateway --host 0.0.0.0 --port 8000 --reload
 ```
 
-The API Gateway will be live at `http://localhost:8000`. Interactive OpenAPI documentation is available at `http://localhost:8000/docs`.
+* API Gateway: `http://localhost:8000`
+* Interactive OpenAPI Documentation: `http://localhost:8000/docs`
 
-#### 4. Start the Celery Worker
+---
 
-In a separate terminal (with virtual environment active):
+### Step 4: Run the Celery Worker
+
+In a separate terminal (with the virtual environment activated):
 
 ```bash
 # Windows PowerShell:
@@ -125,9 +286,11 @@ celery -A apps.worker.worker_app worker --loglevel=info -P threads
 PYTHONPATH=. celery -A apps.worker.worker_app worker --loglevel=info
 ```
 
-#### 5. Start the Frontend Client
+---
 
-In a separate terminal:
+### Step 5: Start the Frontend Cockpit
+
+In a third terminal:
 
 ```bash
 cd apps/frontend
@@ -135,13 +298,16 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173` in your browser.
+Open your browser and navigate to **`http://localhost:5173`**.
+
+> [!TIP]
+> **Zero-Friction Local Development**: By default, local development is configured with `DEV_AUTH_BYPASS=true`, allowing developers to directly inspect graphs, trigger repository ingestion, and query the AI console without login gates. Production instances enforce strict RFC 7519 JWT verification.
 
 ---
 
-### Option B: Full Containerized Stack
+### Full Containerized Deployment
 
-To build and run all services (API Gateway, Celery Worker, Frontend, Redis, RabbitMQ, Qdrant) in Docker:
+To launch the complete GITTY-AI stack (Gateway, Worker, Frontend, Redis, RabbitMQ, Qdrant) inside Docker containers:
 
 ```bash
 docker compose -f infrastructure/compose/docker-compose.dev.yml up --build
@@ -149,77 +315,83 @@ docker compose -f infrastructure/compose/docker-compose.dev.yml up --build
 
 ---
 
-## API Reference
+## Configuration
 
-All protected endpoints require an `Authorization: Bearer <token>` header obtained from the auth endpoints.
+Environment variables can be configured in a root `.env` file:
 
-| Method   | Endpoint                                           | Description                                      | Auth Required |
-| -------- | -------------------------------------------------- | ------------------------------------------------ | ------------- |
-| `POST`   | `/api/v1/auth/register`                            | Register a new user account                      | No            |
-| `POST`   | `/api/v1/auth/login`                               | Authenticate and obtain JWT access token         | No            |
-| `GET`    | `/api/v1/auth/me`                                  | Fetch authenticated user profile                 | Yes           |
-| `POST`   | `/api/v1/repositories/analyze`                     | Queue repository cloning and analysis            | Yes           |
-| `DELETE` | `/api/v1/repositories/{id}`                        | Delete repository, graph nodes, and vectors      | Yes (Owner)   |
-| `GET`    | `/api/v1/repositories/{id}/progress`               | Server-Sent Events stream of live logs           | Yes (Owner)   |
-| `GET`    | `/api/v1/graph/repositories`                       | List repositories accessible to current user     | Yes           |
-| `GET`    | `/api/v1/graph/repositories/{id}/data`             | Fetch graph nodes and edges for visualization    | Yes (Owner)   |
-| `GET`    | `/api/v1/graph/repositories/{id}/expand/{node_id}` | Expand children of a file or class node          | Yes (Owner)   |
-| `GET`    | `/api/v1/graph/nodes/{node_id}`                    | Retrieve node details and security findings      | Yes (Owner)   |
-| `POST`   | `/api/v1/chat/sessions`                            | Create a new AI chat session for a repository    | Yes (Owner)   |
-| `GET`    | `/api/v1/chat/sessions/{id}`                       | Retrieve chat session history                    | Yes (Owner)   |
-| `POST`   | `/api/v1/chat/sessions/{id}/messages`              | Send question to AI assistant with RAG citations | Yes (Owner)   |
-| `POST`   | `/api/v1/search/semantic`                          | Semantic vector search across repository code    | Yes (Owner)   |
+| Variable | Default Value | Description |
+| :--- | :--- | :--- |
+| `ENVIRONMENT` | `development` | Runtime environment (`development`, `staging`, `production`) |
+| `DEV_AUTH_BYPASS` | `true` (dev) / `false` (prod) | Allows bypassing frontend auth modals during local UI development |
+| `JWT_SECRET_KEY` | `*secure-random-key*` | HMAC-SHA256 secret key for signing authentication tokens |
+| `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | `10080` (7 days) | Validity period of issued JWT bearer tokens |
+| `RABBITMQ_URL` | `amqp://guest:guest@localhost:5672//` | AMQP broker connection string for Celery tasks |
+| `REDIS_URL` | `redis://localhost:6379/0` | Redis instance for real-time SSE pub/sub log streaming |
+| `GRAPH_STORAGE_TYPE` | `sqlite` | Graph storage backend: `sqlite` (zero-dep) or `neo4j` |
+| `SQLITE_DB_PATH` | `data/gitty_graph.db` | File path for the embedded SQLite graph database |
+| `NEO4J_URI` | `bolt://localhost:7687` | Connection URI when using Neo4j graph cluster |
+| `QDRANT_HOST` | `localhost` | Hostname of the Qdrant vector database |
+| `QDRANT_PORT` | `6333` | REST port of the Qdrant vector database |
+| `OPENAI_API_KEY` | *(Optional)* | API key for external LLM reasoning in the Reactor Core |
 
 ---
 
 ## Security Architecture
 
-1. **Authentication & Password Storage**:
+GITTY-AI applies defense-in-depth principles across every phase of code ingestion, storage, and AI reasoning:
 
-   * Zero external binary dependencies; utilizes Python standard library `hashlib.pbkdf2_hmac` with 600,000 iterations and cryptographic 16-byte random salts.
-   * RFC 7519 HMAC-SHA256 JWT tokens with configurable expiration (`JWT_ACCESS_TOKEN_EXPIRE_MINUTES`).
-2. **Access Control & Anti-IDOR**:
+```
+Untrusted Input ──► [ SSRF Validator ] ──► [ Flag Neutralizer ] ──► [ Isolated Subprocess ]
+                                                                             │
+LLM Context     ◄── [ XML Isolation ]  ◄── [ IDOR Ownership ]  ◄── [ Secure Storage ]
+```
 
-   * All repository analyses and chat sessions are linked to user accounts in SQLite.
-   * Fast-path verification dependencies (`require_repository_owner`, `require_session_owner`) ensure users cannot access, traverse, delete, or chat about repositories owned by other users.
-3. **Repository Ingestion Hardening**:
-
-   * URLs starting with `-` or `--` command flags are strictly rejected before calling `subprocess`.
-   * Loopback (`127.0.0.1`, `localhost`), link-local metadata (`169.254.169.254`), and private RFC 1918 subnets (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) are blocked to prevent Server-Side Request Forgery (SSRF).
-   * Git shallow clones execute with explicit `--` delimiters and `-c core.symlinks=false` to prevent symlink traversal attacks.
-4. **Prompt Injection Defense**:
-
-   * Code context passed to the LLM is fenced inside `<repository_untrusted_context>` tags.
-   * Strict system instructions mandate treating code context strictly as inert data to be analyzed, resisting prompt injection attempts embedded inside code comments or README files.
+1. **SSRF & Network Defense**:
+   * Repository URLs are resolved and audited against reserved network blocks before any outbound network call.
+   * Blocks RFC 1918 private subnets (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), loopback (`127.0.0.1`, `localhost`), and cloud metadata APIs (`169.254.169.254`).
+2. **Git Argument Injection Neutralization**:
+   * Ingestion parameters starting with `-` or `--` are immediately rejected.
+   * Git clones execute with explicit `--` delimiters and `-c core.symlinks=false` to prevent symlink traversal and arbitrary command execution.
+3. **Prompt Injection Boundary Fencing**:
+   * Untrusted source code passed to the LLM context is strictly encapsulated within `<repository_untrusted_context>` XML delimiter tags.
+   * Hardened system prompts instruct the LLM to treat untrusted context purely as inert data to prevent prompt takeover via malicious repository comments or README files.
+4. **Authentication & IDOR Data Isolation**:
+   * Cryptographic password storage using `hashlib.pbkdf2_hmac` with **600,000 rounds** of SHA-256 and unique 16-byte random salts.
+   * Fast-path owner validation dependencies (`require_repository_owner`, `require_session_owner`) prevent Insecure Direct Object References (IDOR).
 
 ---
 
 ## Verification & Testing
 
-The platform includes 146 automated tests across unit, integration, and security test suites:
+The repository maintains an automated test suite verifying security controls, ingestion pipelines, database batching, and vector search:
 
 ```bash
 # Run the complete test suite
 pytest -v tests/
 ```
 
-### Verified Test Suites
+### Verified Test Coverage
 
-* **Security & Scanner Tests** (`tests/test_scanner_security.py`): URL validation, SSRF blocking, argument injection defense, symlink flags.
-* **Authentication & IDOR Tests** (`tests/test_auth_api.py`): Password hashing, JWT signing/expiry, duplicate handling, per-user repository and session authorization.
-* **Graph Batching & Scalability Tests** (`tests/test_sqlite_batching.py`): Batch insertions (`executemany`) and chunked deletions avoiding SQLite parameter limits.
-* **Worker & Ingestion Tests** (`tests/test_ingestion_worker.py`, `tests/test_vector_worker.py`): End-to-end task execution, idempotent re-indexing, and progress publishing.
-* **RAG & Search Tests** (`tests/test_prompt_builder.py`, `tests/test_chat_endpoints.py`, `tests/test_search_endpoints.py`): XML boundary formatting, chunk budget management, and semantic retrieval.
+* **Security & Ingestion Safeguards** (`tests/test_scanner_security.py`):
+  * URL format verification, SSRF IP-range blocking, Git command-line injection defense, and symlink flags.
+* **Authentication & Authorization** (`tests/test_auth_api.py`):
+  * PBKDF2 key derivation, JWT RFC 7519 encoding/expiration, duplicate user rejection, and per-user IDOR enforcement.
+* **Graph Batching & Integrity** (`tests/test_sqlite_batching.py`):
+  * Large-scale batch inserts (`executemany`) and chunked deletions avoiding SQLite parameter limit errors.
+* **Worker & Pipeline Tasks** (`tests/test_ingestion_worker.py`, `tests/test_vector_worker.py`):
+  * End-to-end repository ingestion, idempotent re-indexing, and SSE progress pub/sub verification.
+* **RAG & Search Quality** (`tests/test_prompt_builder.py`, `tests/test_search_endpoints.py`, `tests/test_chat_endpoints.py`):
+  * XML boundary sanitization, token budget management, and Qdrant semantic search retrieval.
 
 ---
 
 ## Contributors
 
-* [Nikhil Singh](https://github.com/s-nikhil2005)
-* [tigpy](https://github.com/tigpy)
+* **Nikhil Singh** ([@s-nikhil2005](https://github.com/s-nikhil2005))
+* **tigpy** ([@tigpy](https://github.com/tigpy))
 
 ---
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+This project is licensed under the MIT License.
