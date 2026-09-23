@@ -102,9 +102,15 @@ def test_chat_session_lifecycle_without_authorization(api_client):
 
 def test_search_endpoints_work_without_authorization(api_client):
     """Search endpoints accept requests without Authorization."""
-    with patch("app.api.v1.search.SemanticSearchService.search_semantic", return_value=[]), \
-         patch("app.api.v1.search.SemanticSearchService.search_similar_code", return_value=[]), \
-         patch("app.api.v1.search.SemanticSearchService.search_security_findings", return_value=[]):
+    from app.api.v1.search import get_search_service
+    from app.main import app as main_app
+    mock_service = MagicMock()
+    mock_service.search_semantic.return_value = []
+    mock_service.search_similar_code.return_value = []
+    mock_service.search_security_findings.return_value = []
+
+    main_app.dependency_overrides[get_search_service] = lambda: mock_service
+    try:
         res1 = api_client.post("/api/v1/search/semantic", json={"repository_id": "repo-1", "query": "auth"})
         assert res1.status_code == 200
 
@@ -113,6 +119,8 @@ def test_search_endpoints_work_without_authorization(api_client):
 
         res3 = api_client.post("/api/v1/search/security", json={"repository_id": "repo-1", "query": "cve"})
         assert res3.status_code == 200
+    finally:
+        main_app.dependency_overrides.pop(get_search_service, None)
 
 
 def test_auth_routes_no_longer_exist(api_client):

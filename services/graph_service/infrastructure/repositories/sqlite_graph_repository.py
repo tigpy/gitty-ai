@@ -159,11 +159,11 @@ class SQLiteGraphRepository(IGraphRepository, INodeRepository, IEdgeRepository, 
                     batch = node_ids[i:i + batch_size]
                     placeholders = ",".join("?" for _ in batch)
                     cursor.execute(
-                        f"DELETE FROM relationships WHERE source_node IN ({placeholders}) OR target_node IN ({placeholders})",
+                        f"DELETE FROM relationships WHERE source_node IN ({placeholders}) OR target_node IN ({placeholders})",  # nosec B608
                         batch + batch
                     )
                     cursor.execute(
-                        f"DELETE FROM nodes WHERE id IN ({placeholders})",
+                        f"DELETE FROM nodes WHERE id IN ({placeholders})",  # nosec B608
                         batch
                     )
             cursor.execute("DELETE FROM repositories WHERE id = ?", (repo_id,))
@@ -266,7 +266,7 @@ class SQLiteGraphRepository(IGraphRepository, INodeRepository, IEdgeRepository, 
             for i in range(0, len(node_ids), batch_size):
                 batch = node_ids[i:i + batch_size]
                 placeholders = ",".join("?" for _ in batch)
-                cursor.execute(f"SELECT * FROM nodes WHERE id IN ({placeholders})", batch)
+                cursor.execute(f"SELECT * FROM nodes WHERE id IN ({placeholders})", batch)  # nosec B608
                 for r in cursor.fetchall():
                     res_dict = dict(r)
                     meta = json.loads(res_dict["metadata"] or "{}")
@@ -350,7 +350,7 @@ class SQLiteGraphRepository(IGraphRepository, INodeRepository, IEdgeRepository, 
                 batch = node_ids[i:i + batch_size]
                 placeholders = ",".join("?" for _ in batch)
                 cursor.execute(
-                    f"SELECT source_node, target_node, relationship_type, metadata FROM relationships WHERE source_node IN ({placeholders})",
+                    f"SELECT source_node, target_node, relationship_type, metadata FROM relationships WHERE source_node IN ({placeholders})",  # nosec B608
                     batch
                 )
                 for r in cursor.fetchall():
@@ -379,14 +379,14 @@ class SQLiteGraphRepository(IGraphRepository, INodeRepository, IEdgeRepository, 
                 batch = node_ids[i:i + batch_size]
                 placeholders = ",".join("?" for _ in batch)
                 cursor.execute(
-                    f"SELECT target_node, COUNT(*) FROM relationships WHERE target_node IN ({placeholders}) GROUP BY target_node",
+                    f"SELECT target_node, COUNT(*) FROM relationships WHERE target_node IN ({placeholders}) GROUP BY target_node",  # nosec B608
                     batch
                 )
                 for tgt, cnt in cursor.fetchall():
                     inbound[tgt] = cnt
 
                 cursor.execute(
-                    f"SELECT source_node, COUNT(*) FROM relationships WHERE source_node IN ({placeholders}) GROUP BY source_node",
+                    f"SELECT source_node, COUNT(*) FROM relationships WHERE source_node IN ({placeholders}) GROUP BY source_node",  # nosec B608
                     batch
                 )
                 for src, cnt in cursor.fetchall():
@@ -409,10 +409,10 @@ class SQLiteGraphRepository(IGraphRepository, INodeRepository, IEdgeRepository, 
                 placeholders = ",".join("?" for _ in batch)
                 if relationship_types:
                     rtype_placeholders = ",".join("?" for _ in relationship_types)
-                    query = f"SELECT DISTINCT target_node FROM relationships WHERE source_node IN ({placeholders}) AND relationship_type IN ({rtype_placeholders})"
+                    query = f"SELECT DISTINCT target_node FROM relationships WHERE source_node IN ({placeholders}) AND relationship_type IN ({rtype_placeholders})"  # nosec B608
                     params = batch + list(relationship_types)
                 else:
-                    query = f"SELECT DISTINCT target_node FROM relationships WHERE source_node IN ({placeholders})"
+                    query = f"SELECT DISTINCT target_node FROM relationships WHERE source_node IN ({placeholders})"  # nosec B608
                     params = batch
                 cursor.execute(query, params)
                 for row in cursor.fetchall():
@@ -435,10 +435,10 @@ class SQLiteGraphRepository(IGraphRepository, INodeRepository, IEdgeRepository, 
                 placeholders = ",".join("?" for _ in batch)
                 if relationship_types:
                     rtype_placeholders = ",".join("?" for _ in relationship_types)
-                    query = f"SELECT DISTINCT target_node FROM relationships WHERE target_node IN ({placeholders}) AND relationship_type IN ({rtype_placeholders})"
+                    query = f"SELECT DISTINCT target_node FROM relationships WHERE target_node IN ({placeholders}) AND relationship_type IN ({rtype_placeholders})"  # nosec B608
                     params = batch + list(relationship_types)
                 else:
-                    query = f"SELECT DISTINCT target_node FROM relationships WHERE target_node IN ({placeholders})"
+                    query = f"SELECT DISTINCT target_node FROM relationships WHERE target_node IN ({placeholders})"  # nosec B608
                     params = batch
                 cursor.execute(query, params)
                 for row in cursor.fetchall():
@@ -467,10 +467,10 @@ class SQLiteGraphRepository(IGraphRepository, INodeRepository, IEdgeRepository, 
                     placeholders = ",".join("?" for _ in batch)
                     if edge_types:
                         type_placeholders = ",".join("?" for _ in edge_types)
-                        query = f"SELECT DISTINCT target_node FROM relationships WHERE source_node IN ({placeholders}) AND relationship_type IN ({type_placeholders})"
+                        query = f"SELECT DISTINCT target_node FROM relationships WHERE source_node IN ({placeholders}) AND relationship_type IN ({type_placeholders})"  # nosec B608
                         params = batch + list(edge_types)
                     else:
-                        query = f"SELECT DISTINCT target_node FROM relationships WHERE source_node IN ({placeholders})"
+                        query = f"SELECT DISTINCT target_node FROM relationships WHERE source_node IN ({placeholders})"  # nosec B608
                         params = batch
 
                     cursor.execute(query, params)
@@ -495,7 +495,7 @@ class SQLiteGraphRepository(IGraphRepository, INodeRepository, IEdgeRepository, 
 
                 if edge_types:
                     placeholders = ",".join("?" for _ in edge_types)
-                    query = f"SELECT target_node FROM relationships WHERE source_node = ? AND relationship_type IN ({placeholders})"
+                    query = f"SELECT target_node FROM relationships WHERE source_node = ? AND relationship_type IN ({placeholders})"  # nosec B608
                     params = [node_id] + edge_types
                 else:
                     query = "SELECT target_node FROM relationships WHERE source_node = ?"

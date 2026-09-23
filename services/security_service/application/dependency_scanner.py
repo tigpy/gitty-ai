@@ -627,7 +627,7 @@ def _parse_pnpm_lock(relative: str, text: str) -> List[Dependency]:
 def _parse_pom(relative: str, text: str) -> List[Dependency]:
     if "<!DOCTYPE" in text.upper() or "<!ENTITY" in text.upper():
         raise ValueError("DTD is not allowed")
-    root = ET.fromstring(text)
+    root = ET.fromstring(text)  # nosec B314
     parent_map = {child: parent for parent in root.iter() for child in list(parent)}
     dependencies = []
     for element in root.iter():
