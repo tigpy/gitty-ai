@@ -11,20 +11,40 @@ class LocalFileWalker(IFileWalker):
             "coverage", ".next", ".turbo", ".nuxt", ".cache"
         ]
 
-    def _should_ignore(self, name: str, relative_path: str, ignore_patterns: Set[str]) -> bool:
+    def _should_ignore(self, name: str, relative_path: str, ignore_patterns: Set[str], is_dir: bool = False) -> bool:
+        norm_path = relative_path.replace("\\", "/").strip("/")
+        parts = norm_path.split("/") if norm_path else []
+
         # Check against default ignore patterns
-        for pattern in self.default_ignores:
-            if pattern in relative_path.split(os.sep):
+        for default_ign in self.default_ignores:
+            if default_ign in parts or fnmatch.fnmatch(name, default_ign):
                 return True
-                
+
         # Check against parsed .gitignore patterns
         for pattern in ignore_patterns:
-            if fnmatch.fnmatch(name, pattern) or fnmatch.fnmatch(relative_path, pattern):
-                return True
-            # Matches folder names inside relative_path
-            for part in relative_path.split(os.sep):
-                if fnmatch.fnmatch(part, pattern):
+            p = pattern.strip().replace("\\", "/")
+            if not p or p.startswith("#"):
+                continue
+            anchored = p.startswith("/")
+            clean_p = p.strip("/")
+
+            if anchored:
+                if norm_path == clean_p or norm_path.startswith(clean_p + "/"):
                     return True
+                if fnmatch.fnmatch(norm_path, clean_p) or fnmatch.fnmatch(norm_path, clean_p + "/*"):
+                    return True
+            else:
+                if clean_p in parts:
+                    return True
+                if fnmatch.fnmatch(name, clean_p):
+                    return True
+                if fnmatch.fnmatch(norm_path, clean_p) or fnmatch.fnmatch(norm_path, "*/" + clean_p):
+                    return True
+                if fnmatch.fnmatch(norm_path, clean_p + "/*") or fnmatch.fnmatch(norm_path, "*/" + clean_p + "/*"):
+                    return True
+                for part in parts:
+                    if fnmatch.fnmatch(part, clean_p):
+                        return True
         return False
 
     def _parse_gitignore(self, root_path: str) -> Set[str]:
@@ -36,8 +56,8 @@ class LocalFileWalker(IFileWalker):
                     for line in f:
                         line = line.strip()
                         if line and not line.startswith("#"):
-                            # Normalize path slashes
                             line = line.replace("/", os.sep)
+                            line = line.replace("\\", "/")
                             patterns.add(line)
             except Exception:
                 pass
@@ -58,19 +78,18 @@ class LocalFileWalker(IFileWalker):
         ignore_patterns = self._parse_gitignore(root_path)
 
         for dirpath, dirnames, filenames in os.walk(root_path):
-            # In-place modify dirnames to avoid descending into ignored directories
             rel_dirpath = os.path.relpath(dirpath, root_path)
             if rel_dirpath == ".":
                 rel_dirpath = ""
 
             dirnames[:] = [
                 d for d in dirnames
-                if not self._should_ignore(d, os.path.join(rel_dirpath, d), ignore_patterns)
+                if not self._should_ignore(d, (os.path.join(rel_dirpath, d) if rel_dirpath else d).replace("\\", "/"), ignore_patterns, is_dir=True)
             ]
 
             for filename in filenames:
                 rel_filepath = (os.path.join(rel_dirpath, filename) if rel_dirpath else filename).replace("\\", "/")
-                if self._should_ignore(filename, rel_filepath, ignore_patterns):
+                if self._should_ignore(filename, rel_filepath, ignore_patterns, is_dir=False):
                     continue
 
                 abs_path = os.path.join(dirpath, filename)
@@ -94,4 +113,5 @@ class LocalFileWalker(IFileWalker):
                     pass
 
         return file_list
+
 Class = LocalFileWalker

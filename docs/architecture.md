@@ -57,9 +57,9 @@ GITTY-AI is built around a decoupled service-oriented architecture designed for 
   1. **Validation**: Remote URL validated against SSRF targets, private RFC 1918 IPs, loopbacks, and flag injection (`--upload-pack`, `-u`).
   2. **Shallow Clone**: `git clone --depth=1 -c core.symlinks=false -- <url> <dest>` executed with execution timeouts.
   3. **File Discovery**: `FileDiscoveryService` categorizes source code, documentation, and config files while filtering `.git`, `node_modules`, `venv`, and binary artifacts.
-  4. **AST Parsing**: Python AST parsing extracts `IRModule`, `IRClass`, `IRFunction`, `IRImport`, and `IRCall`. Java, JavaScript, and TypeScript files are handled gracefully without crashing.
+  4. **AST Parsing**: Python uses the built-in `ast` module. JavaScript, TypeScript, and Java use the Tree-sitter parsers in `services/parser_service` when those grammars import. A missing grammar does not by itself invent nodes.
   5. **Security Scanning**:
-     - **Vulnerability DB**: Queries Google OSV (Open Source Vulnerabilities) API with 2-second timeout, in-memory caching, and local fallback data.
+     - **Dependency scanner**: Static parse of the manifests listed in the README. Exact versions are sent to the OSV API with ecosystem `PyPI`, `npm`, or `Maven`. Lookup failure is `unavailable` or `partial`, not an empty clean report. A three-package local seed still flags old `requests`, `pyyaml`, and `urllib3`.
      - **Secret Detector**: Regex and entropy detection of AWS tokens, GitHub tokens, JWTs, and private keys.
      - **Dangerous API Detector**: Identifies `eval`, `exec`, `os.system`, `subprocess(shell=True)`, insecure deserialization (`pickle`), and weak cryptographic hashing (`md5`, `sha1`).
   6. **Graph Construction**: Batch-accumulates graph nodes and edges and commits them via bulk SQL transactions.
@@ -71,12 +71,10 @@ GITTY-AI is built around a decoupled service-oriented architecture designed for 
   - **Neo4j**: Enterprise graph database using native Cypher traversals (`shortestPath`, `MATCH path = (start)-[*]->(target)`) avoiding N+1 Python iteration overhead.
 
 ### 2.4 Vector Search & RAG (`services/vector_service`, `services/rag_service`)
-- **Embeddings**: SentenceTransformer (`all-MiniLM-L6-v2`) with SQLite embedding cache and graceful fallback.
-- **Vector Store**: Qdrant vector database (supports both local Docker and in-memory test instances).
-- **Prompt Injection Defense**:
-  - Untrusted repository data enclosed in `<repository_untrusted_context>` XML fencing tags.
-  - Explicit system prompt instructions prohibiting model from following code-embedded directives.
-  - Character budget-aware chunk selection that respects complete syntax boundaries.
+- **Embeddings**: `SentenceTransformerProvider` loads `all-MiniLM-L6-v2` (384 dimensions) when that provider is selected. It does not fall back to hash vectors. `MockEmbeddingProvider` runs only when `EMBEDDING_PROVIDER=mock` and is rejected in production. The model was not loaded in the workspace that produced the M7 checkpoint.
+- **Vector Store**: Qdrant. Upsert and search check the configured dimension. Collection setup does not fail the process solely because Qdrant is down; a later read or write does.
+- **Hybrid context**: Vector hits are seeds. `GraphContextExpander` adds a bounded set of existing graph relationships. Limits are `RAG_MAX_GRAPH_SEEDS`, `RAG_MAX_GRAPH_DEPTH`, `RAG_MAX_GRAPH_NODES`, and `RAG_MAX_GRAPH_RELATIONSHIPS`.
+- **Prompt construction**: `PromptBuilder` assigns a random boundary id and places repository and graph text in an untrusted region. The system prompt does not contain that text. This was tested structurally. It was not tested by asking a live model to ignore the boundary.
 
 ### 2.5 Frontend Client (`apps/frontend`)
 - **Stack**: React 19 + TypeScript + Vite.
@@ -108,8 +106,9 @@ User (UI)
 User asks question in ChatPanel
   --> POST /api/v1/chat/sessions/{id}/messages
   --> Gateway verifies session ownership
-  --> Semantic search in Qdrant retrieves top-K code & security chunks
-  --> PromptBuilder fences chunks inside <repository_untrusted_context>
-  --> LLM Provider generates answer with file citations
-  --> Response persisted to session and returned to UI
+  --> Semantic search in Qdrant retrieves code and document chunks
+  --> GraphContextExpander adds a bounded set of graph relationships, or keeps the vector chunks if the graph lookup fails
+  --> PromptBuilder places both in a randomly delimited untrusted region
+  --> LLM provider generates an answer
+  --> Response persisted to the session and returned to the UI
 ```

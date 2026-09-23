@@ -1,7 +1,7 @@
 from typing import List, Optional
 from ...domain.entities.vector_document import VectorDocument
 from ...domain.value_objects.chunk import Chunk
-from ...infrastructure.embeddings.sentence_transformer_provider import EmbeddingProvider
+from ...infrastructure.embeddings.sentence_transformer_provider import EmbeddingProvider, EmbeddingProviderError
 from ...infrastructure.embeddings.sqlite_embedding_cache import SQLiteEmbeddingCache
 
 class EmbeddingService:
@@ -19,8 +19,8 @@ class EmbeddingService:
             if self.cache:
                 vector = self.cache.get_embedding(chunk.content_hash, self.model_name)
                 
-            if not vector:
-                vector = self.provider.embed(chunk.text)
+            if not vector or len(vector) != self.provider.dimensions:
+                vector = self._require_dimension(self.provider.embed(chunk.text))
                 if self.cache:
                     self.cache.set_embedding(chunk.content_hash, self.model_name, vector)
 
@@ -41,4 +41,12 @@ class EmbeddingService:
 
     def embed_query(self, text: str) -> List[float]:
         """Directly embeds a text query (without cache check) for semantic retrieval."""
-        return self.provider.embed(text)
+        return self._require_dimension(self.provider.embed(text))
+
+    def _require_dimension(self, vector: List[float]) -> List[float]:
+        expected = self.provider.dimensions
+        if len(vector) != expected:
+            raise EmbeddingProviderError(
+                f"Embedding provider returned {len(vector)} dimensions; expected {expected}."
+            )
+        return vector

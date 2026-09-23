@@ -7,9 +7,10 @@ services:
       dockerfile: infrastructure/docker/api-gateway.Dockerfile
     container_name: gitty-api-gateway
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       - ENV=development
+      - GRAPH_MODE=sqlite
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - RABBITMQ_HOST=rabbitmq
@@ -19,6 +20,13 @@ services:
       - NEO4J_PASSWORD=gitty_password
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
+      - EMBEDDING_PROVIDER=sentence-transformers
+      - EMBEDDING_MODEL=all-MiniLM-L6-v2
+      - EMBEDDING_DIMENSIONS=384
+      - RAG_MAX_GRAPH_SEEDS=5
+      - RAG_MAX_GRAPH_DEPTH=2
+      - RAG_MAX_GRAPH_NODES=24
+      - RAG_MAX_GRAPH_RELATIONSHIPS=32
       - LOG_LEVEL=debug
     volumes:
       - ../../apps/api-gateway:/app/apps/api-gateway
@@ -39,7 +47,7 @@ services:
       dockerfile: infrastructure/docker/frontend.Dockerfile
     container_name: gitty-frontend
     ports:
-      - "5173:80"
+      - "127.0.0.1:5173:80"
     environment:
       - VITE_API_URL=http://localhost:8000/api/v1
     depends_on:
@@ -52,6 +60,8 @@ services:
     container_name: gitty-worker
     environment:
       - ENV=development
+      - DEV_AUTH_BYPASS=false
+      - GRAPH_MODE=sqlite
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - RABBITMQ_HOST=rabbitmq
@@ -61,6 +71,13 @@ services:
       - NEO4J_PASSWORD=gitty_password
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
+      - EMBEDDING_PROVIDER=sentence-transformers
+      - EMBEDDING_MODEL=all-MiniLM-L6-v2
+      - EMBEDDING_DIMENSIONS=384
+      - RAG_MAX_GRAPH_SEEDS=5
+      - RAG_MAX_GRAPH_DEPTH=2
+      - RAG_MAX_GRAPH_NODES=24
+      - RAG_MAX_GRAPH_RELATIONSHIPS=32
       - LOG_LEVEL=debug
     volumes:
       - ../../apps/worker:/app/apps/worker

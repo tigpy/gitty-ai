@@ -66,6 +66,13 @@ class MockGraphService:
             ]
         )
 
+    def repository_id_for_node(self, node_id: str):
+        if node_id == "error-node":
+            return "error-repo"
+        if node_id == "unknown-node":
+            return None
+        return "repo-1"
+
 @pytest.fixture
 def override_graph():
     mock_service = MockGraphService()

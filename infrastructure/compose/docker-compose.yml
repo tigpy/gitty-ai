@@ -49,13 +49,13 @@ services:
       - "7474:7474"
       - "7687:7687"
     environment:
-      - NEO4J_AUTH=neo4j/gitty_password
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-gitty_password}
       - NEO4J_PLUGINS=["apoc"]
     volumes:
       - neo4j_data:/data
       - neo4j_logs:/logs
     healthcheck:
-      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "gitty_password", "RETURN 1"]
+      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "${NEO4J_PASSWORD:-gitty_password}", "RETURN 1"]
       interval: 15s
       timeout: 10s
       retries: 5

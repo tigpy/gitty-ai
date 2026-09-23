@@ -5,7 +5,7 @@ from services.vector_service.application.services.chunking_service import Chunki
 from services.vector_service.application.services.embedding_service import EmbeddingService
 from services.vector_service.application.services.indexing_service import IndexingService
 from services.vector_service.application.services.semantic_search_service import SemanticSearchService
-from services.vector_service.infrastructure.embeddings.sentence_transformer_provider import SentenceTransformerProvider
+from services.vector_service.infrastructure.embeddings.sentence_transformer_provider import MockEmbeddingProvider
 from services.vector_service.infrastructure.vector_store.qdrant_repository import QdrantRepository
 
 from typing import Any
@@ -41,7 +41,7 @@ def test_indexing_and_semantic_search(tmp_path):
 
     # In-memory Qdrant repository
     vector_repo = QdrantRepository(in_memory=True, vector_size=384)
-    provider = SentenceTransformerProvider(force_mock=True)
+    provider = MockEmbeddingProvider(dimensions=384, model_name="unit-test-mock")
     embedding_service = EmbeddingService(provider, cache=None)
     chunking_service = ChunkingService()
     

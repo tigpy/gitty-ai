@@ -80,7 +80,8 @@ class ChunkingService:
                         "language": file_lang,
                         "symbol_name": name,
                         "node_type": "FUNCTION",
-                        "chunk_type": "FUNCTION"
+                        "chunk_type": "FUNCTION",
+                        "graph_node_id": node_id,
                     }
                     chunks.append(Chunk(
                         id=chunk_id,
@@ -107,7 +108,8 @@ class ChunkingService:
                         "language": file_lang,
                         "symbol_name": name,
                         "node_type": "CLASS",
-                        "chunk_type": "CLASS"
+                        "chunk_type": "CLASS",
+                        "graph_node_id": node_id,
                     }
                     chunks.append(Chunk(
                         id=chunk_id,
@@ -132,7 +134,8 @@ class ChunkingService:
                         "language": file_lang,
                         "symbol_name": name,
                         "node_type": "FILE",
-                        "chunk_type": "FILE"
+                        "chunk_type": "FILE",
+                        "graph_node_id": node_id,
                     }
                     chunks.append(Chunk(
                         id=chunk_id,

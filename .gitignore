@@ -71,3 +71,33 @@ gitty_graph.db*
 *.key
 *.pem
 credentials.json
+
+# Model files and weights
+*.gguf
+*.safetensors
+*.bin
+*.onnx
+models/
+
+# Checkpoint archives & artifacts
+*.zip
+*.tar
+*.tar.gz
+*.rar
+artifacts/
+
+# Local diagnostic and temporary scripts
+e2e_*.py
+e2e_*.txt
+run_llm_tests.py
+llm_test_out.txt
+llm_test_result.txt
+pytest_*.txt
+test_output.txt
+test_errors.txt
+pt.txt
+
+# Media files
+*.mkv
+*.mp4
+*.avi

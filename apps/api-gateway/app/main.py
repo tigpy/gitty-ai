@@ -2,10 +2,14 @@ import uvicorn
 import os
 import sys
 
-# Ensure project root is in sys.path to find libs and services
+# Ensure project root and app dir are in sys.path to find libs, services, and app
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+app_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
+if app_root not in sys.path:
+    sys.path.insert(0, app_root)
 
 # If 'libs' namespace package was already loaded by Uvicorn/environment,
 # its cached __path__ won't include our directory. We must insert it.
@@ -27,6 +31,7 @@ from app.api.router import router as api_router
 
 # Initialize structured logging
 configure_logging(settings.ENV)
+settings.validate_production_security()
 logger = get_logger("api-gateway")
 
 # Initialize and wire dependency injection container
@@ -88,9 +93,9 @@ async def general_error_handler(request: Request, exc: Exception):
         status_code=500,
         content={"message": "An unexpected error occurred.", "code": "INTERNAL_SERVER_ERROR"}
     )
-
 app.include_router(api_router)
 
 if __name__ == "__main__":
-    logger.info("Starting Gitty AI API Gateway", env=settings.ENV)
-    uvicorn.run("apps.api-gateway.app.main:app", host="0.0.0.0", port=8000, reload=(settings.ENV == "development"))
+    host = os.environ.get("HOST", "127.0.0.1")
+    logger.info("Starting Gitty AI API Gateway", env=settings.ENV, host=host)
+    uvicorn.run("apps.api-gateway.app.main:app", host=host, port=8000, reload=(settings.ENV == "development"))

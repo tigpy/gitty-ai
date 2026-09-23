@@ -125,7 +125,9 @@ class DeadCodeDetectionService:
 
         So we collect every *target_node* of a BELONGS_TO edge that originates from a CallNode.
         """
-        call_node_ids = {n["id"] for n in nodes if n["type"] == "Call"}
+        call_node_ids = [n["id"] for n in nodes if n["type"] == "Call"]
+        if hasattr(self.repository, "get_referenced_nodes_batch"):
+            return self.repository.get_referenced_nodes_batch(call_node_ids, ["BELONGS_TO"])
         referenced: set = set()
         for cid in call_node_ids:
             for edge in self.repository.get_outbound_edges(cid):
@@ -200,19 +202,26 @@ class DeadCodeDetectionService:
         """Identifies classes with zero inbound INHERITS or CALLS (instantiation) references."""
         unused = []
         classes = [n for n in nodes if n["type"] == "Class"]
+        class_ids = [cls["id"] for cls in classes]
+
+        if hasattr(self.repository, "get_referenced_targets_batch"):
+            referenced_class_ids = self.repository.get_referenced_targets_batch(
+                class_ids, ["INHERITS", "CALLS", "BELONGS_TO"]
+            )
+        else:
+            referenced_class_ids = set()
+            for cls in classes:
+                class_id = cls["id"]
+                inbound = self.repository.get_inbound_edges(class_id)
+                if any(e["relationship_type"] in ("INHERITS", "CALLS", "BELONGS_TO") for e in inbound):
+                    referenced_class_ids.add(class_id)
 
         for cls in classes:
             class_name = cls.get("name", "")
             class_id = cls["id"]
             path = cls.get("path", "")
 
-            inbound = self.repository.get_inbound_edges(class_id)
-            # A class is referenced if something inherits from it OR directly calls it
-            # (instantiation shows up as a CALLS edge from a function to the class node).
-            inherits_edges = [e for e in inbound if e["relationship_type"] == "INHERITS"]
-            call_edges = [e for e in inbound if e["relationship_type"] in ("CALLS", "BELONGS_TO")]
-
-            if not inherits_edges and not call_edges:
+            if class_id not in referenced_class_ids:
                 conf = self.calculate_confidence("Class", path, cls)
                 unused.append({
                     "id": class_id,
@@ -326,7 +335,7 @@ class DeadCodeDetectionService:
 
         return dead_components
 
-    def detect_architecture_smells(self, nodes: List[Dict[str, Any]], repo_id: str) -> List[Dict[str, Any]]:
+    def detect_architecture_smells(self, nodes: List[Dict[str, Any]], repo_id: str, all_deps: Optional[Dict[str, List[str]]] = None) -> List[Dict[str, Any]]:
         """Scans for architectural smells including LARGE_MODULE, Circular Imports, and High Fan-in/out."""
         smells = []
         files = [n for n in nodes if n["type"] == "File"]
@@ -335,6 +344,24 @@ class DeadCodeDetectionService:
         fan_in_threshold = self.settings.GITTY_SMELL_FAN_IN_THRESHOLD
         fan_out_threshold = self.settings.GITTY_SMELL_FAN_OUT_THRESHOLD
         size_threshold = self.settings.GITTY_SMELL_MODULE_SIZE_THRESHOLD
+
+        # Pre-aggregate function and class counts per file in O(nodes) instead of O(files * nodes)
+        funcs_by_file: Dict[str, int] = {}
+        classes_by_file: Dict[str, int] = {}
+        for n in nodes:
+            ntype = n.get("type")
+            if ntype == "Function":
+                pid = n.get("parent_id")
+                if not pid and isinstance(n.get("metadata"), dict):
+                    pid = n["metadata"].get("parent_id")
+                if pid:
+                    funcs_by_file[pid] = funcs_by_file.get(pid, 0) + 1
+            elif ntype == "Class":
+                fid = n.get("file_id")
+                if not fid and isinstance(n.get("metadata"), dict):
+                    fid = n["metadata"].get("file_id")
+                if fid:
+                    classes_by_file[fid] = classes_by_file.get(fid, 0) + 1
 
         # 1. LARGE_MODULE detection
         for f in files:
@@ -347,9 +374,8 @@ class DeadCodeDetectionService:
                 if isinstance(meta, dict):
                     line_count = meta.get("line_count") or 0
                     
-            # Count functions and classes in this file
-            funcs_count = len([n for n in nodes if n["type"] == "Function" and (n.get("parent_id") == fid or n.get("metadata", {}).get("parent_id") == fid)])
-            classes_count = len([n for n in nodes if n["type"] == "Class" and (n.get("file_id") == fid or n.get("metadata", {}).get("file_id") == fid)])
+            funcs_count = funcs_by_file.get(fid, 0)
+            classes_count = classes_by_file.get(fid, 0)
 
             module_size_score = line_count + (funcs_count * 5) + (classes_count * 10)
             if module_size_score > size_threshold:
@@ -362,7 +388,7 @@ class DeadCodeDetectionService:
                 })
 
         # 2. CIRCULAR_DEPENDENCY detection
-        sccs = self.dep_service.strongly_connected_components(repo_id)
+        sccs = self.dep_service.strongly_connected_components(repo_id, all_deps=all_deps)
         id_to_path = {n["id"]: n["path"] for n in nodes if n["type"] == "File"}
         for scc in sccs:
             if len(scc) > 1:
@@ -376,28 +402,35 @@ class DeadCodeDetectionService:
                 })
 
         # 3. HIGH_FAN_IN and HIGH_FAN_OUT detection
-        for n in nodes:
-            if n["type"] in ("File", "Class", "Function"):
-                nid = n["id"]
-                inbound_count = len(self.repository.get_inbound_edges(nid))
-                outbound_count = len(self.repository.get_outbound_edges(nid))
+        entity_nodes = [n for n in nodes if n["type"] in ("File", "Class", "Function")]
+        entity_ids = [n["id"] for n in entity_nodes]
+        if hasattr(self.repository, "get_inbound_and_outbound_degree_counts"):
+            inbound_counts, outbound_counts = self.repository.get_inbound_and_outbound_degree_counts(entity_ids)
+        else:
+            inbound_counts = {nid: len(self.repository.get_inbound_edges(nid)) for nid in entity_ids}
+            outbound_counts = {nid: len(self.repository.get_outbound_edges(nid)) for nid in entity_ids}
 
-                if inbound_count > fan_in_threshold:
-                    smells.append({
-                        "type": "HIGH_FAN_IN",
-                        "entity_id": nid,
-                        "entity_name": n.get("name"),
-                        "path": n.get("path", ""),
-                        "message": f"Entity has {inbound_count} inbound edges, exceeding threshold of {fan_in_threshold}."
-                    })
-                if outbound_count > fan_out_threshold:
-                    smells.append({
-                        "type": "HIGH_FAN_OUT",
-                        "entity_id": nid,
-                        "entity_name": n.get("name"),
-                        "path": n.get("path", ""),
-                        "message": f"Entity has {outbound_count} outbound edges, exceeding threshold of {fan_out_threshold}."
-                    })
+        for n in entity_nodes:
+            nid = n["id"]
+            inbound_count = inbound_counts.get(nid, 0)
+            outbound_count = outbound_counts.get(nid, 0)
+
+            if inbound_count > fan_in_threshold:
+                smells.append({
+                    "type": "HIGH_FAN_IN",
+                    "entity_id": nid,
+                    "entity_name": n.get("name"),
+                    "path": n.get("path", ""),
+                    "message": f"Entity has {inbound_count} inbound edges, exceeding threshold of {fan_in_threshold}."
+                })
+            if outbound_count > fan_out_threshold:
+                smells.append({
+                    "type": "HIGH_FAN_OUT",
+                    "entity_id": nid,
+                    "entity_name": n.get("name"),
+                    "path": n.get("path", ""),
+                    "message": f"Entity has {outbound_count} outbound edges, exceeding threshold of {fan_out_threshold}."
+                })
 
         return smells
 
@@ -485,16 +518,13 @@ class DeadCodeDetectionService:
         repo_node = next((n for n in nodes if n["type"] == "Repository"), None)
         repo_name = repo_node.get("name", "unknown") if repo_node else "unknown"
 
-        # Construct dependency maps for unreferenced files & dead modules
+        # Construct dependency maps for unreferenced files & dead modules in a single batch pass
         file_nodes = [n for n in nodes if n["type"] == "File"]
         file_ids = [f["id"] for f in file_nodes]
-        deps = {}
+        deps = self.dep_service.get_all_file_dependencies(repo_id, nodes=nodes)
         inbound_deps = {fid: set() for fid in file_ids}
-        
-        for f in file_nodes:
-            fid = f["id"]
-            file_deps = self.dep_service.get_file_dependencies(fid, repo_id)
-            deps[fid] = file_deps
+
+        for fid, file_deps in deps.items():
             for dep in file_deps:
                 if dep in inbound_deps:
                     inbound_deps[dep].add(fid)
@@ -515,7 +545,7 @@ class DeadCodeDetectionService:
         dead_funcs = [f for f in dead_funcs if f["path"] not in dead_paths]
         dead_classes = [c for c in dead_classes if c["path"] not in dead_paths]
 
-        smells = self.detect_architecture_smells(nodes, repo_id)
+        smells = self.detect_architecture_smells(nodes, repo_id, all_deps=deps)
 
         # Detect unused imports: walk Import nodes and check if any Function/Class in the
         # same file references the imported symbol name in a Call or Attribute access.

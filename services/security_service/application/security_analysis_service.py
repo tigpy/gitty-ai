@@ -19,6 +19,7 @@ from ..domain.rules.pickle_rule import PickleRule
 from ..domain.rules.subprocess_rule import SubprocessRule
 from ..domain.rules.debug_config_rule import DebugConfigRule
 from ..domain.rules.dependency_risk_rule import DependencyRiskRule
+from .dependency_scanner import scan_dependencies
 from .risk_scoring import calculate_security_score
 
 class SecurityAnalysisService:
@@ -58,8 +59,10 @@ class SecurityAnalysisService:
                 file_paths.add(req_txt_path)
 
         all_findings: List[SecurityFinding] = []
+        requirement_contents: List[tuple] = []
 
-        # 2. Scan each file
+        # 2. Scan each file. Dependency manifests are parsed statically afterwards
+        # so one repository walk covers every supported ecosystem.
         for f_path in file_paths:
             abs_path = os.path.join(repo_path, f_path) if repo_path else f_path
             if not os.path.exists(abs_path):
@@ -83,14 +86,33 @@ class SecurityAnalysisService:
                 # Use empty AST tree for non-python files (e.g. requirements.txt)
                 tree = ast.Module(body=[], type_ignores=[])
 
-            # Run all rules
             for rule in self.rules:
+                if rule.id == "DEPENDENCY_RISK":
+                    if str(f_path).endswith("requirements.txt"):
+                        requirement_contents.append((f_path, content))
+                    continue
                 try:
                     findings = rule.evaluate(tree, content, f_path)
                     all_findings.extend(findings)
                 except Exception:
                     # Robust execution: don't let one rule failure crash the service
                     continue
+
+        dependency_findings = None
+        if repo_path and os.path.isdir(repo_path):
+            try:
+                dependency_findings = scan_dependencies(repo_path).to_findings()
+            except Exception:
+                dependency_findings = None
+        if dependency_findings is None:
+            rule = next((item for item in self.rules if item.id == "DEPENDENCY_RISK"), DependencyRiskRule())
+            dependency_findings = []
+            for path, content in requirement_contents:
+                try:
+                    dependency_findings.extend(rule.evaluate(ast.parse(""), content, path))
+                except Exception:
+                    continue
+        all_findings.extend(dependency_findings)
 
         # 3. Calculate metrics
         critical_count = sum(1 for f in all_findings if f.severity == Severity.CRITICAL)

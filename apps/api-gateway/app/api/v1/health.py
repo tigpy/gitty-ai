@@ -3,6 +3,8 @@ from dependency_injector.wiring import inject, Provide
 from datetime import datetime, timezone
 from ...core.container import ApplicationContainer
 from ...core.providers import ConnectionChecker
+from libs.config import get_settings
+from services.vector_service.infrastructure.embeddings.provider_factory import describe_embedding_configuration
 
 router = APIRouter()
 
@@ -29,5 +31,6 @@ def get_health(
             "rabbitmq": rabbitmq_status,
             "neo4j": neo4j_status,
             "qdrant": qdrant_status
-        }
+        },
+        "embeddings": describe_embedding_configuration(get_settings()),
     }

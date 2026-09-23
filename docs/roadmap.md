@@ -11,7 +11,8 @@ This document records the verified status of features in GITTY-AI, clearly disti
 - [x] **Git Isolation**: Ingestion invokes shallow clones (`--depth=1`) with `-c core.symlinks=false`, explicit `--` end-of-options delimiters, and execution timeouts.
 - [x] **Native Authentication**: Zero-dependency RFC 7519 HMAC-SHA256 JWT tokens and PBKDF2-HMAC-SHA256 (600,000 iterations) password hashing with cryptographic salts.
 - [x] **IDOR Protection**: Strict per-user ownership verification across all repository actions, graph expansions, chat sessions, and SSE progress channels.
-- [x] **Prompt Injection Defense**: Dual-layer mitigation utilizing system prompt security policies and XML boundary fencing (`<repository_untrusted_context>`) to prevent code comments from hijacking LLM reasoning.
+- [x] **Prompt construction**: Repository and graph text go through `PromptBuilder` with a per-instance random boundary. This is a structural control, not a proof that every model will ignore the data region.
+- [x] **Dependency manifests**: Static parsing for the Python, npm, and Maven files listed in README.md, plus OSV queries for exact versions. This is not coverage of every ecosystem or every transitive dependency.
 
 ### Performance & Scalability
 - [x] **Batch Database Operations**: Added `add_nodes_batch` and `add_edges_batch` with single-transaction commits in `SQLiteGraphRepository`.
@@ -21,7 +22,7 @@ This document records the verified status of features in GITTY-AI, clearly disti
 - [x] **Celery Resiliency**: Configured task timeouts (`time_limit=600`), retry bounds (`max_retries=2`), and idempotent pre-indexing cleanup.
 
 ### Intelligence & Security Analysis
-- [x] **Google OSV Integration**: Real-time dependency vulnerability lookup against Google OSV API with 2-second timeout, in-memory caching, and local fallback database.
+- [x] **OSV lookup**: Exact package versions can be sent to the Google OSV API. A failed lookup is recorded as unavailable or partial. The local seed covers three historical PyPI packages only.
 - [x] **Dangerous API & Secret Detection**: Static detection for hardcoded secrets (API keys, AWS credentials) and hazardous operations (`eval`, `exec`, `subprocess(shell=True)`).
 - [x] **Dead Code Analysis**: Detection of functions and symbols with zero inbound references.
 - [x] **Semantic Vector Search**: SentenceTransformer embeddings cached in SQLite and indexed in Qdrant with real cosine similarity score propagation.

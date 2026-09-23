@@ -11,7 +11,7 @@ class RepositoryQAAgent(BaseAgent):
             from services.rag_service.application.services.rag_service import RAGService
             from services.rag_service.domain.entities.rag_query import RAGQuery
             from services.vector_service.infrastructure.vector_store.qdrant_repository import QdrantRepository
-            from services.vector_service.infrastructure.embeddings.sentence_transformer_provider import SentenceTransformerProvider
+            from services.vector_service.infrastructure.embeddings.provider_factory import build_embedding_provider
             from services.vector_service.infrastructure.embeddings.sqlite_embedding_cache import SQLiteEmbeddingCache
             from services.vector_service.application.services.embedding_service import EmbeddingService
             from services.vector_service.application.services.semantic_search_service import SemanticSearchService
@@ -19,8 +19,8 @@ class RepositoryQAAgent(BaseAgent):
             from libs.config import get_settings
 
             settings = get_settings()
-            vector_repo = QdrantRepository()
-            provider = SentenceTransformerProvider()
+            provider = build_embedding_provider()
+            vector_repo = QdrantRepository(vector_size=provider.dimensions)
             cache = SQLiteEmbeddingCache(db_path=settings.SQLITE_DB_PATH)
             embed_service = EmbeddingService(provider, cache)
             search_service = SemanticSearchService(vector_repo, embed_service)

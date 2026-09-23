@@ -1,6 +1,11 @@
 import hashlib
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import List
+
+
+class EmbeddingProviderError(RuntimeError):
+    """The configured embedding provider could not produce a real vector."""
+
 
 class EmbeddingProvider(ABC):
     @property
@@ -10,54 +15,102 @@ class EmbeddingProvider(ABC):
 
     @abstractmethod
     def embed(self, text: str) -> List[float]:
-        """Generates a vector embedding list of floats for the text."""
-        pass
+        """Return one embedding. Must not substitute a hash vector on failure."""
+
+    def ensure_ready(self) -> None:
+        """Fail before indexing if this provider cannot actually embed."""
+
 
 class SentenceTransformerProvider(EmbeddingProvider):
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2", force_mock: bool = False):
-        self.model_name = model_name
-        self.force_mock = force_mock
-        self._model = None
-        self._initialized = False
+    """Local sentence-transformers model. Never falls back to hash vectors."""
 
-    def _init_model(self):
-        if self._initialized:
-            return
-        if self.force_mock:
-            self._initialized = True
-            return
-            
-        try:
-            from sentence_transformers import SentenceTransformer
-            self._model = SentenceTransformer(self.model_name)
-        except Exception:
-            # Fallback to mock if sentence_transformers is not installed
-            self._model = None
-        self._initialized = True
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2", dimensions: int = 384):
+        if dimensions < 1:
+            raise EmbeddingProviderError("Embedding dimensions must be a positive integer.")
+        self.model_name = model_name
+        self.provider_name = "sentence-transformers"
+        self._dimensions = dimensions
+        self._model = None
 
     @property
     def dimensions(self) -> int:
-        return 384  # all-MiniLM-L6-v2 dimension size is 384
+        return self._dimensions
 
-    def _deterministic_mock_embed(self, text: str) -> List[float]:
-        # Generate 384 floats deterministically based on text content hash.
-        # We make the first element dominant so that any two mock embeddings 
-        # have a high baseline similarity (~0.77) to satisfy search thresholds in tests.
-        h = hashlib.sha256(text.encode("utf-8")).digest()
-        floats = [1.0]
-        for i in range(383):
-            val = ((h[i % len(h)] + i) * 17) % 256
-            floats.append(((val / 128.0) - 1.0) * 0.05)
-        # Normalize the vector to unit length
-        mag = sum(x*x for x in floats) ** 0.5
-        return [round(x / mag, 4) for x in floats]
+    def ensure_ready(self) -> None:
+        if self._model is not None:
+            return
+        try:
+            from sentence_transformers import SentenceTransformer
+        except ImportError as exc:
+            raise EmbeddingProviderError(
+                "EMBEDDING_PROVIDER=sentence-transformers but the sentence-transformers "
+                "package is not installed. Mock embeddings are not used as a fallback."
+            ) from exc
+        try:
+            model = SentenceTransformer(self.model_name)
+        except Exception as exc:
+            raise EmbeddingProviderError(
+                f"Failed to initialize embedding model '{self.model_name}': {exc}"
+            ) from exc
+        try:
+            actual = int(model.get_sentence_embedding_dimension())
+        except Exception as exc:
+            raise EmbeddingProviderError(
+                f"Could not read the dimension of embedding model '{self.model_name}': {exc}"
+            ) from exc
+        if actual != self._dimensions:
+            raise EmbeddingProviderError(
+                f"Model '{self.model_name}' has dimension {actual}, "
+                f"but EMBEDDING_DIMENSIONS is {self._dimensions}."
+            )
+        self._model = model
 
     def embed(self, text: str) -> List[float]:
-        self._init_model()
-        if self._model:
-            try:
-                vector = self._model.encode(text)
-                return vector.tolist()
-            except Exception:
-                pass
-        return self._deterministic_mock_embed(text)
+        self.ensure_ready()
+        try:
+            encoded = self._model.encode(text)
+            values = [float(value) for value in encoded.tolist()]
+        except EmbeddingProviderError:
+            raise
+        except Exception as exc:
+            raise EmbeddingProviderError(
+                f"Embedding model '{self.model_name}' failed to encode text: {exc}"
+            ) from exc
+        if len(values) != self._dimensions:
+            raise EmbeddingProviderError(
+                f"Model '{self.model_name}' returned {len(values)} dimensions; "
+                f"expected {self._dimensions}."
+            )
+        return values
+
+
+class MockEmbeddingProvider(EmbeddingProvider):
+    """
+    Deterministic non-semantic vectors for tests.
+
+    This provider is never selected automatically. Callers must construct it
+    directly or set EMBEDDING_PROVIDER=mock outside production.
+    """
+
+    def __init__(self, dimensions: int = 384, model_name: str = "mock"):
+        if dimensions < 1:
+            raise EmbeddingProviderError("Embedding dimensions must be a positive integer.")
+        self.model_name = model_name
+        self.provider_name = "mock"
+        self._dimensions = dimensions
+
+    @property
+    def dimensions(self) -> int:
+        return self._dimensions
+
+    def ensure_ready(self) -> None:
+        return None
+
+    def embed(self, text: str) -> List[float]:
+        digest = hashlib.sha256(text.encode("utf-8")).digest()
+        values = [1.0]
+        for index in range(self._dimensions - 1):
+            raw = ((digest[index % len(digest)] + index) * 17) % 256
+            values.append(((raw / 128.0) - 1.0) * 0.05)
+        magnitude = sum(value * value for value in values) ** 0.5
+        return [round(value / magnitude, 4) for value in values]
