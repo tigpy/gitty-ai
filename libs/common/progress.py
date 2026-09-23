@@ -44,6 +44,15 @@ def publish_progress(repository_id: str, status: str, message: str) -> None:
             repository_id=repository_id,
             status=status,
         )
+
+        # Persist status in SQLite
+        try:
+            from services.graph_service.infrastructure.repositories.graph_repository_factory import get_graph_repository
+            repo_db = get_graph_repository()
+            if hasattr(repo_db, "update_repository_status"):
+                repo_db.update_repository_status(repository_id, status)
+        except Exception:
+            pass
     except Exception as e:
         logger.warning(
             "Failed to publish progress to Redis",

@@ -4,13 +4,13 @@ from unittest.mock import MagicMock, patch
 from libs.config import get_settings
 from apps.worker.worker_app import build_vector_index, app
 from services.vector_service.infrastructure.vector_store.qdrant_repository import QdrantRepository
-from services.vector_service.infrastructure.embeddings.sentence_transformer_provider import SentenceTransformerProvider
+from services.vector_service.infrastructure.embeddings.sentence_transformer_provider import MockEmbeddingProvider
 
 app.conf.task_always_eager = True
 
 @patch("apps.worker.worker_app.RabbitMQPublisher")
 @patch("services.vector_service.infrastructure.vector_store.qdrant_repository.QdrantRepository")
-@patch("services.vector_service.infrastructure.embeddings.sentence_transformer_provider.SentenceTransformerProvider")
+@patch("services.vector_service.infrastructure.embeddings.provider_factory.build_embedding_provider")
 def test_worker_build_vector_index_task(
     mock_provider_cls,
     mock_qdrant_repo_cls,
@@ -40,8 +40,8 @@ def calculate(a, b):
     mock_publisher_cls.return_value = mock_publisher
     
     # Use real in-memory QdrantRepository and mock provider for SentenceTransformer
-    mock_qdrant_repo_cls.return_value = QdrantRepository(in_memory=True)
-    mock_provider_cls.return_value = SentenceTransformerProvider(force_mock=True)
+    mock_qdrant_repo_cls.return_value = QdrantRepository(in_memory=True, vector_size=384)
+    mock_provider_cls.return_value = MockEmbeddingProvider(dimensions=384, model_name="unit-test-mock")
     
     # Setup temporary SQLite DB path to keep test isolated
     original_db = settings.SQLITE_DB_PATH

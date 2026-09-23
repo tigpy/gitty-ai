@@ -15,9 +15,10 @@ def test_repo_id_generation():
     repo_id_2 = generate_repo_id(url_no_git)
     assert repo_id_2.startswith("express-")
 
+@patch("app.api.v1.repositories.validate_repository_url", side_effect=lambda u: u)
 @patch("app.api.v1.repositories.celery_app.send_task")
 @patch("app.api.v1.repositories.RepositoryCleanupService.cleanup")
-def test_analyze_repository_endpoint(mock_cleanup, mock_send_task):
+def test_analyze_repository_endpoint(mock_cleanup, mock_send_task, mock_validate):
     client = TestClient(app)
     
     payload = {"url": "https://github.com/pallets/flask"}
@@ -38,7 +39,7 @@ def test_analyze_repository_endpoint(mock_cleanup, mock_send_task):
 @patch("app.api.v1.repositories.RepositoryCleanupService.cleanup")
 def test_delete_repository_endpoint(mock_cleanup):
     client = TestClient(app)
-    
+
     response = client.delete("/api/v1/repositories/flask-a91f23de")
     assert response.status_code == 200
     data = response.json()
@@ -47,13 +48,10 @@ def test_delete_repository_endpoint(mock_cleanup):
     mock_cleanup.assert_called_once_with("flask-a91f23de")
 
 @patch("app.api.v1.repositories.aioredis.Redis")
-def test_progress_stream_endpoint(mock_redis_class, test_user_repo):
+def test_progress_stream_endpoint(mock_redis_class):
     from unittest.mock import AsyncMock
-    from libs.auth.security import create_access_token
 
     repo_id = "flask-a91f23de"
-    test_user_repo.assign_repository_owner("test-user-id", repo_id)
-    token = create_access_token("test-user-id", "testuser")
 
     # Set up mock async redis pub/sub
     mock_redis = MagicMock()
@@ -68,7 +66,7 @@ def test_progress_stream_endpoint(mock_redis_class, test_user_repo):
     mock_redis_class.return_value = mock_redis
     
     client = TestClient(app)
-    response = client.get(f"/api/v1/repositories/{repo_id}/progress?token={token}")
+    response = client.get(f"/api/v1/repositories/{repo_id}/progress")
     assert response.status_code == 200
     assert "text/event-stream" in response.headers["content-type"]
     

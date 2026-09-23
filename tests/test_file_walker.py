@@ -121,3 +121,57 @@ def test_local_file_walker_exceptions(tmp_path, monkeypatch):
     files = walker.walk(str(repo_dir))
     # It should skip the file that raised an exception and return empty list
     assert files == []
+
+
+def test_local_file_walker_cross_platform_patterns(tmp_path):
+    r"""
+    Regression test for:
+    - directory ignore patterns (trailing slash, e.g. 'build/')
+    - Windows path separators (\)
+    - Unix-style gitignore patterns (/root_only/, *.tmp, dir/*)
+    - nested ignored directories
+    """
+    repo = tmp_path / "repo_patterns"
+    repo.mkdir()
+
+    gitignore = repo / ".gitignore"
+    gitignore.write_text(
+        "*.tmp\n"
+        "/anchored_dir/\n"
+        "nested/ignore_me/\n"
+        "build/\n"
+        "windows\\slash\\dir/\n",
+        encoding="utf-8"
+    )
+
+    (repo / "index.ts").write_text("code", encoding="utf-8")
+    (repo / "temp.tmp").write_text("temp", encoding="utf-8")
+
+    anchored = repo / "anchored_dir"
+    anchored.mkdir()
+    (anchored / "file1.txt").write_text("f1", encoding="utf-8")
+
+    sub_anchored = repo / "sub" / "anchored_dir"
+    sub_anchored.mkdir(parents=True)
+    (sub_anchored / "file2.txt").write_text("f2", encoding="utf-8")
+
+    nested = repo / "nested" / "ignore_me"
+    nested.mkdir(parents=True)
+    (nested / "nested_file.txt").write_text("nf", encoding="utf-8")
+
+    build = repo / "build"
+    build.mkdir()
+    (build / "bundle.js").write_text("bundle", encoding="utf-8")
+
+    walker = LocalFileWalker()
+    files = walker.walk(str(repo))
+    paths = {f["path"] for f in files}
+
+    assert "index.ts" in paths
+    assert ".gitignore" in paths
+    assert "sub/anchored_dir/file2.txt" in paths  # Not anchored at root, so kept
+    assert "temp.tmp" not in paths
+    assert "anchored_dir/file1.txt" not in paths
+    assert "nested/ignore_me/nested_file.txt" not in paths
+    assert "build/bundle.js" not in paths
+

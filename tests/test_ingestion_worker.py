@@ -105,9 +105,14 @@ def test_worker_health_check():
     res = worker_health_check()
     assert res == {"status": "ok", "worker": "gitty-worker"}
 
-def test_generate_embeddings():
+def test_generate_embeddings_does_not_report_success_without_a_real_provider(monkeypatch):
+    import sys
+    monkeypatch.setitem(sys.modules, "sentence_transformers", None)
     res = generate_embeddings("test-repo")
-    assert res == {"status": "completed", "repository_id": "test-repo"}
+    assert res["repository_id"] == "test-repo"
+    assert res["status"] == "failed"
+    assert "sentence-transformers" in res["error"]
+    assert "not installed" in res["error"]
 
 @patch("apps.worker.worker_app.GithubRepositoryScanner")
 def test_ingestion_worker_scan_failure(mock_scanner_cls, tmp_path):

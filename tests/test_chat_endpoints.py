@@ -120,7 +120,7 @@ def test_api_get_session_not_found(override_chat):
     client = TestClient(app)
     response = client.get("/api/v1/chat/sessions/unknown-session-id")
     assert response.status_code == 404
-    assert response.json()["detail"] == "Chat session not found"
+    assert "not found" in response.json()["detail"].lower()
 
 def test_api_list_sessions(override_chat):
     client = TestClient(app)

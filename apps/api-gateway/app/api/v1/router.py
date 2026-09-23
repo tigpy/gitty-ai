@@ -1,5 +1,4 @@
 from fastapi import APIRouter
-from .auth import router as auth_router
 from .health import router as health_router
 from .search import router as search_router
 from .rag import router as rag_router
@@ -10,7 +9,6 @@ from .repositories import router as repositories_router
 
 router = APIRouter()
 
-router.include_router(auth_router, tags=["Auth"])
 router.include_router(health_router, tags=["Health"])
 router.include_router(search_router, tags=["Search"])
 router.include_router(rag_router, tags=["RAG"])

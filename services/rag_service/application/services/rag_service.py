@@ -16,13 +16,17 @@ from ...domain.entities.rag_query import RAGQuery
 from ...domain.entities.rag_response import RAGResponse
 from ...domain.entities.retrieved_chunk import RetrievedChunk
 from .prompt_builder import PromptBuilder
+from .graph_context_expander import assemble_hybrid_context
+
+_UNSET = object()
 
 class RAGService:
     def __init__(
         self,
         search_service: SemanticSearchService,
         llm_provider: Optional[BaseLLM] = None,
-        publisher: Optional[IEventBus] = None
+        publisher: Optional[IEventBus] = None,
+        graph_repo: Any = _UNSET,
     ):
         self.settings = get_settings()
         self.search_service = search_service
@@ -32,6 +36,21 @@ class RAGService:
         )
         self.publisher = publisher
         self.prompt_builder = PromptBuilder()
+        self._graph_repo = None if graph_repo is _UNSET else graph_repo
+        self._graph_repo_configured = graph_repo is not _UNSET
+
+    def _resolve_graph_repo(self):
+        if self._graph_repo_configured:
+            return self._graph_repo
+        try:
+            from services.graph_service.infrastructure.repositories.graph_repository_factory import (
+                get_graph_repository,
+            )
+            self._graph_repo = get_graph_repository()
+        except Exception:
+            self._graph_repo = None
+        self._graph_repo_configured = True
+        return self._graph_repo
 
     def query_repository(self, query: RAGQuery) -> RAGResponse:
         start_time = time.perf_counter()
@@ -100,17 +119,23 @@ class RAGService:
 
             # Unpack for prompt construction
             retrieved_chunks = [pair[0] for pair in retrieved_pairs]
+            prompt_chunks = assemble_hybrid_context(
+                self._resolve_graph_repo(),
+                query.repository_id,
+                retrieved_chunks,
+            )
 
             # 4. Construct prompt via PromptBuilder
             prompt = self.prompt_builder.build_rag_prompt(
                 question=query.question,
-                retrieved_chunks=retrieved_chunks
+                retrieved_chunks=prompt_chunks
             )
 
-            # 5. Generate Answer via LLM
+            # 5. Generate Answer via LLM. The system prompt names the same
+            # boundary id that build_rag_prompt just minted.
             answer = self.llm_provider.generate(
                 prompt=prompt,
-                system_prompt=self.prompt_builder.DEFAULT_SYSTEM_PROMPT
+                system_prompt=self.prompt_builder.system_prompt
             )
 
             latency_ms = int((time.perf_counter() - start_time) * 1000)

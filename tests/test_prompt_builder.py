@@ -27,19 +27,25 @@ def test_prompt_builder_structure():
     ]
     
     prompt = builder.build_rag_prompt("How to login?", chunks)
-    
-    assert "=== Repository Context (Untrusted Data) ===" in prompt
-    assert "<repository_untrusted_context>" in prompt
-    assert "</repository_untrusted_context>" in prompt
-    assert "=== User Question ===" in prompt
-    assert "=== Instructions ===" in prompt
-    
-    assert '<code_chunk index="1" file="auth.py" lines="1-2" type="FUNCTION" symbol="login">' in prompt
+    boundary = builder.boundary_id
+
+    assert f'<gitty-untrusted id="{boundary}">' in prompt
+    assert prompt.count(f'</gitty-untrusted id="{boundary}">') == 1
+    assert f'<gitty-user-instruction id="{boundary}">' in prompt
+    assert f'</gitty-user-instruction id="{boundary}">' in prompt
+    assert boundary in builder.system_prompt
+    assert "def login():" not in builder.system_prompt
+
+    assert f'file="auth.py"' in prompt
+    assert 'lines="1-2"' in prompt
+    assert 'type="FUNCTION"' in prompt
+    assert 'symbol="login"' in prompt
     assert "def login():" in prompt
-    
-    assert '<code_chunk index="2" file="README.md" lines="N/A" type="DOCUMENTATION">' in prompt
+
+    assert 'file="README.md"' in prompt
+    assert 'type="DOCUMENTATION"' in prompt
     assert "# API documentation" in prompt
-    
+
     assert "How to login?" in prompt
     assert builder.DEFAULT_SYSTEM_PROMPT is not None
 

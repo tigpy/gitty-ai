@@ -1,9 +1,13 @@
 # GITTY-AI — Final Engineering Remediation & Implementation Report
 
+> Historical snapshot from 17 September 2026. It is not the current release description.
+> The test count, the "100% verified" status, and the `<repository_untrusted_context>` fence described below are outdated.
+> Current behavior is README.md. Current tests are whatever `pytest` reports on this tree.
+
 **Date**: September 17, 2026  
 **Auditor & Lead Remediation Engineer**: Antigravity Engineering  
 **Project**: GITTY-AI  
-**Status**: **100% Verified & Fully Remediated** (146/146 Tests Passing)
+**Status**: Superseded. Do not quote the pass rate or security claims in this file.
 
 ---
 
@@ -37,7 +41,7 @@ Through a rigorous 22-phase engineering remediation, all 17 audited findings (AU
 | **AUD-02** | Server-Side Request Forgery (CWE-918) | **CRITICAL** | `libs/shared_kernel/validation.py` | **RESOLVED** | Validated URLs, blocked private RFC 1918 IPs, loopbacks, and metadata `169.254.169.254`. |
 | **AUD-03** | Missing Authentication & IDOR | **CRITICAL** | `apps/api-gateway/app/api/v1/` | **RESOLVED** | Built `libs/auth/` (PBKDF2 + JWT). Protected all routes with `get_current_user` and owner checks. |
 | **AUD-04** | Symlink Traversal during Ingestion | **HIGH** | `services/scanner_service/infrastructure/github_repository_scanner.py` | **RESOLVED** | Added `-c core.symlinks=false` to git clone invocations. |
-| **AUD-05** | Prompt Injection via Code Comments | **HIGH** | `services/rag_service/application/services/prompt_builder.py` | **RESOLVED** | Enclosed code context in `<repository_untrusted_context>` XML fencing tags; updated system directives. |
+| **AUD-05** | Prompt Injection via Code Comments | **HIGH** | `services/rag_service/application/services/prompt_builder.py` | **SUPERSEDED** | The static `<repository_untrusted_context>` fence described here was replaced by per-request random boundaries. See README.md. |
 | **AUD-06** | SQLite Parameter Limit Crash (CWE-400) | **HIGH** | `services/graph_service/infrastructure/repositories/sqlite_graph_repository.py` | **RESOLVED** | Chunked repository deletion into batches of 400 parameters. |
 | **AUD-07** | N+1 SQLite Graph Insertion Bottleneck | **HIGH** | `services/graph_service/application/graph_builder.py` | **RESOLVED** | Added `add_nodes_batch` and `add_edges_batch` using `executemany` in a single transaction. |
 | **AUD-08** | Blocking Redis in FastAPI Event Loop | **MEDIUM** | `apps/api-gateway/app/api/v1/repositories.py` | **RESOLVED** | Migrated SSE progress streaming to `redis.asyncio`. |
@@ -68,7 +72,7 @@ Through a rigorous 22-phase engineering remediation, all 17 audited findings (AU
   - Subprocess calls protected by `--` delimiter, `core.symlinks=false`, and execution timeouts.
   - Built-in PBKDF2-HMAC-SHA256 password security and RFC 7519 JWT auth.
   - Strict IDOR ownership validation on every repository, graph traversal, and chat session.
-  - XML fencing (`<repository_untrusted_context>`) preventing prompt injection attacks.
+  - Historical note: an earlier static `<repository_untrusted_context>` fence is not the current prompt builder.
 - **Optimized Data Layer**:
   - Bulk graph commits (`add_nodes_batch`, `add_edges_batch`) via single SQL transactions.
   - Chunked deletion in batches of 400 parameters, scaling safely to arbitrarily large codebases.

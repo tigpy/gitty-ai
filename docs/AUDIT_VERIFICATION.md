@@ -1,5 +1,8 @@
 # GITTY-AI: Audit Verification Report (Phase 0)
 
+> Historical Phase 0 notes. Do not use this file as the current security model or as proof that a finding is still open or still fixed.
+> Authentication, SSRF, embeddings, prompt construction, hybrid RAG, and dependency scanning are described in README.md.
+
 **Date:** September 2026  
 **Auditor:** Senior Staff Software Architect & Cybersecurity Engineer  
 **Reference:** Independent Codebase Analysis & Verification  

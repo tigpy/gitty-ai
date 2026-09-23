@@ -318,8 +318,18 @@ export const RepositorySidebar: React.FC<SidebarProps> = ({
               opacity: analyzing || !urlInput.trim() ? 0.6 : 1,
               cursor: analyzing || !urlInput.trim() ? 'not-allowed' : 'pointer'
             }}
+            aria-label={analyzing ? 'Analysis in progress' : 'Ingest and analyze repository'}
           >
-            {analyzing ? 'ANALYZING GRAPH...' : '+ INGEST & ANALYZE'}
+            {analyzing ? (
+              <>
+                <span style={{
+                  width: '10px', height: '10px',
+                  border: '1.5px solid currentColor', borderTopColor: 'transparent',
+                  borderRadius: '50%', display: 'inline-block', animation: 'spin 0.8s linear infinite', flexShrink: 0,
+                }} />
+                ANALYZING…
+              </>
+            ) : '+ INGEST & ANALYZE'}
           </button>
         </form>
       </div>
@@ -328,7 +338,7 @@ export const RepositorySidebar: React.FC<SidebarProps> = ({
       <div style={{
         padding: '6px 12px',
         borderBottom: '1px solid var(--hairline)',
-        maxHeight: '100px',
+        maxHeight: '140px',
         overflowY: 'auto',
         background: 'var(--bg-panel)',
         flexShrink: 0
@@ -341,96 +351,114 @@ export const RepositorySidebar: React.FC<SidebarProps> = ({
         </div>
 
         {loadingRepos ? (
-          <div style={{ color: 'var(--ink-muted)', fontSize: '10.5px', fontFamily: 'var(--font-mono)', padding: '4px 0' }}>
-            SCANNING TARGETS...
+          <div style={{ color: 'var(--ink-muted)', fontSize: '10.5px', fontFamily: 'var(--font-mono)', padding: '6px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{
+              width: '10px', height: '10px',
+              border: '1.5px solid var(--accent-amber)', borderTopColor: 'transparent',
+              borderRadius: '50%', display: 'inline-block', animation: 'spin 0.8s linear infinite', flexShrink: 0,
+            }} />
+            SCANNING TARGETS…
           </div>
         ) : repos.length === 0 ? (
-          <div style={{ color: 'var(--ink-muted)', fontSize: '10.5px', fontFamily: 'var(--font-mono)', padding: '4px 0' }}>
-            NO TARGETS CONFIGURED
+          <div style={{
+            color: 'var(--ink-muted)', fontSize: '10.5px', fontFamily: 'var(--font-mono)',
+            padding: '10px 0', textAlign: 'center', lineHeight: 1.5,
+          }}>
+            <div style={{ fontSize: '16px', marginBottom: '4px', opacity: 0.3 }}>◈</div>
+            <div>No repositories indexed yet.</div>
+            <div style={{ fontSize: '10px', color: 'var(--ink-faint)', marginTop: '2px' }}>
+              Paste a GitHub URL above and click Ingest.
+            </div>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
             {repos.map((repo, idx) => {
               const isSelected = selectedRepo?.id === repo.id;
               const indexStr = String(idx + 1).padStart(2, '0');
+              const status: string = (repo as any).status ?? 'completed';
+              const statusColor =
+                status === 'completed' ? 'var(--status-green)' :
+                status === 'failed'    ? 'var(--status-red)' :
+                status === 'processing'? 'var(--accent-amber)' :
+                'var(--ink-muted)';
+              const statusLabel =
+                status === 'completed'  ? 'DONE' :
+                status === 'failed'     ? 'FAIL' :
+                status === 'processing' ? 'PROC' :
+                status === 'queued'     ? 'QUEUED' : 'DONE';
+              const indexedDate = repo.indexed_at
+                ? new Date(repo.indexed_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+                : '';
               return (
                 <div
                   key={repo.id}
                   onClick={() => onSelectRepo(repo)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelectRepo(repo); }}
+                  aria-label={`Select repository ${repo.name}`}
+                  aria-pressed={isSelected}
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '3px 7px',
-                    height: '30px',
+                    display: 'flex', flexDirection: 'column', gap: '2px',
+                    padding: '5px 7px',
                     borderRadius: '4px',
                     cursor: 'pointer',
                     background: isSelected ? 'rgba(240, 164, 34, 0.08)' : 'transparent',
                     border: '1px solid',
                     borderColor: isSelected ? 'var(--accent-amber)' : 'transparent',
-                    borderLeft: isSelected ? '2px solid var(--accent-amber)' : '1px solid transparent',
-                    color: isSelected ? 'var(--accent-amber-bright)' : 'var(--ink-primary)',
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '11px',
-                    transition: 'all 0.12s ease'
+                    borderLeft: `2px solid ${isSelected ? 'var(--accent-amber)' : 'transparent'}`,
+                    transition: 'all 0.12s ease',
+                    outline: 'none',
                   }}
-                  onMouseEnter={(e) => {
-                    if (!isSelected) {
-                      e.currentTarget.style.background = 'var(--bg-hover)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isSelected) {
-                      e.currentTarget.style.background = 'transparent';
-                    }
-                  }}
+                  onMouseEnter={(e) => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'var(--bg-hover)'; }}
+                  onMouseLeave={(e) => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                  onFocus={(e) => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'var(--bg-hover)'; }}
+                  onBlur={(e) => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden', flex: 1 }}>
-                    <span style={{ color: isSelected ? 'var(--accent-amber)' : 'var(--ink-muted)', fontSize: '10px' }}>{indexStr}</span>
-                    <span style={{ color: isSelected ? 'var(--accent-amber)' : 'var(--ink-muted)', fontSize: '11px' }}>◈</span>
-                    <span style={{ 
-                      overflow: 'hidden', 
-                      textOverflow: 'ellipsis', 
-                      whiteSpace: 'nowrap',
-                      fontWeight: isSelected ? 600 : 400
+                  {/* Row 1: index + name + status dot */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <span style={{ color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)', fontSize: '9.5px', flexShrink: 0 }}>{indexStr}</span>
+                    <span style={{
+                      flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: isSelected ? 600 : 400,
+                      color: isSelected ? 'var(--accent-amber-bright)' : 'var(--ink-primary)',
                     }}>
                       {repo.name}
                     </span>
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
-                    {isSelected && (
-                      <span style={{
-                        fontSize: '9px',
-                        fontFamily: 'var(--font-mono)',
-                        color: 'var(--accent-amber)',
-                        letterSpacing: '0.06em',
-                        fontWeight: 600
-                      }}>
-                        ACTIVE
-                      </span>
-                    )}
-
+                    <span style={{
+                      fontFamily: 'var(--font-mono)', fontSize: '8.5px', fontWeight: 600,
+                      color: statusColor, letterSpacing: '0.05em', flexShrink: 0,
+                    }}>
+                      {statusLabel}
+                    </span>
                     {onDeleteRepo && (
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDeleteRepo(repo.id, repo.name);
-                        }}
+                        onClick={(e) => { e.stopPropagation(); onDeleteRepo(repo.id, repo.name); }}
                         style={{
-                          background: 'transparent',
-                          border: 'none',
-                          color: 'var(--ink-muted)',
-                          cursor: 'pointer',
-                          padding: '2px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          borderRadius: '3px'
+                          background: 'transparent', border: 'none',
+                          color: 'var(--ink-muted)', cursor: 'pointer',
+                          padding: '1px', display: 'flex', alignItems: 'center',
+                          borderRadius: '3px', flexShrink: 0,
                         }}
                         title="Purge repository from index"
+                        aria-label={`Delete repository ${repo.name}`}
                       >
-                        <Trash2 size={11} />
+                        <Trash2 size={10} />
                       </button>
+                    )}
+                  </div>
+                  {/* Row 2: language + indexed date */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', paddingLeft: '18px' }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9.5px', color: 'var(--ink-muted)' }}>
+                      {repo.language?.toUpperCase() || '—'}
+                    </span>
+                    {indexedDate && (
+                      <>
+                        <span style={{ color: 'var(--ink-faint)', fontSize: '8px' }}>·</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9.5px', color: 'var(--ink-muted)' }}>
+                          {indexedDate}
+                        </span>
+                      </>
                     )}
                   </div>
                 </div>

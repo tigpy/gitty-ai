@@ -33,6 +33,7 @@ from services.security_service.application.security_analysis_service import Secu
 from libs.models.ir import IRModule, IRImport, IRClass, IRFunction, IRCall
 
 settings = get_settings()
+settings.validate_production_security()
 configure_logging(settings.ENV)
 logger = get_logger("worker")
 
@@ -104,9 +105,10 @@ def index_repository(self, repository_id: str, repo_url: str):
     try:
         scan_res = scan_service.scan_remote_repository(repo_url, working_dir, repo_id=repository_id)
     except Exception as e:
-        logger.error("Scan failed", repository_id=repository_id, error=str(e))
-        publish_progress(repository_id, "failed", f"Scan failed: {e}")
-        return {"status": "failed", "repository_id": repository_id, "error": f"Scan failed: {e}"}
+        safe_msg = getattr(e, "message", None) or str(e)
+        logger.error("Scan failed", repository_id=repository_id, error=str(e), detail=getattr(e, "stderr", ""))
+        publish_progress(repository_id, "failed", f"Scan failed: {safe_msg}")
+        return {"status": "failed", "repository_id": repository_id, "error": f"Scan failed: {safe_msg}"}
         
     root_path = scan_res["root_path"]
     files = scan_res["files"]
@@ -315,17 +317,18 @@ def build_vector_index(self, repository_id: str):
 
     try:
         from services.vector_service.infrastructure.vector_store.qdrant_repository import QdrantRepository
-        from services.vector_service.infrastructure.embeddings.sentence_transformer_provider import SentenceTransformerProvider
+        from services.vector_service.infrastructure.embeddings.provider_factory import build_embedding_provider
         from services.vector_service.infrastructure.embeddings.sqlite_embedding_cache import SQLiteEmbeddingCache
         from services.vector_service.application.services.chunking_service import ChunkingService
         from services.vector_service.application.services.embedding_service import EmbeddingService
         from services.vector_service.application.services.indexing_service import IndexingService
 
         sqlite_repo = get_graph_repository()
-        vector_repo = QdrantRepository()
         chunking_service = ChunkingService()
-        
-        provider = SentenceTransformerProvider()
+
+        provider = build_embedding_provider()
+        provider.ensure_ready()
+        vector_repo = QdrantRepository(vector_size=provider.dimensions)
         cache = SQLiteEmbeddingCache(db_path=settings.SQLITE_DB_PATH)
         embedding_service = EmbeddingService(provider, cache)
 
@@ -356,5 +359,18 @@ def worker_health_check():
 
 @app.task(name="gitty.tasks.generate_embeddings")
 def generate_embeddings(repository_id: str):
-    return {"status": "completed", "repository_id": repository_id}
+    """Index embeddings. A missing real provider is a failure, not a fake success."""
+    from services.vector_service.infrastructure.embeddings.provider_factory import build_embedding_provider
+
+    try:
+        provider = build_embedding_provider()
+        provider.ensure_ready()
+    except Exception as exc:
+        logger.error(
+            "Embedding provider failed to initialize",
+            repository_id=repository_id,
+            error=str(exc),
+        )
+        return {"status": "failed", "repository_id": repository_id, "error": str(exc)}
+    return build_vector_index(repository_id)
 

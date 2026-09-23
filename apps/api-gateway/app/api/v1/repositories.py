@@ -1,4 +1,3 @@
-import os
 import re
 import uuid
 import json
@@ -13,10 +12,6 @@ from app.core.config import settings
 from services.graph_service.application.repository_cleanup_service import RepositoryCleanupService
 from services.graph_service.infrastructure.repositories.graph_repository_factory import get_graph_repository
 from libs.shared_kernel.validation import validate_repository_id, validate_repository_url
-from libs.auth.models import User
-from libs.auth.dependencies import get_current_user, require_repository_owner
-from libs.auth.repository import get_user_repository, UserRepository
-from libs.auth.security import decode_access_token
 from libs.logging import get_logger
 from celery import Celery
 
@@ -41,13 +36,11 @@ def generate_repo_id(url: str) -> str:
 @router.post("/repositories/analyze")
 def analyze_repository(
     request: AnalyzeRequest,
-    overwrite: bool = Query(True),
-    current_user: User = Depends(get_current_user),
-    user_repo: UserRepository = Depends(get_user_repository)
+    overwrite: bool = Query(True)
 ):
     """
     Triggers asynchronous repository cloning, AST parsing, and knowledge graph construction.
-    Protected by user authentication and URL sanitization against argument injection and SSRF.
+    Protected by URL sanitization against argument injection and SSRF.
     """
     raw_url = str(request.url).strip()
     if not raw_url:
@@ -72,15 +65,10 @@ def analyze_repository(
             existing_repos = repo_db.list_repositories()
             for r in existing_repos:
                 if r.get("name") == repo_name:
-                    # Verify current user owns this repository before overwriting
-                    if user_repo.is_repository_owner(current_user.id, r["id"]):
-                        logger.info(f"Overwriting old scan for repository name {repo_name} (ID: {r['id']})")
-                        cleanup_service.cleanup(r["id"])
+                    logger.info(f"Overwriting old scan for repository name {repo_name} (ID: {r['id']})")
+                    cleanup_service.cleanup(r["id"])
         except Exception as e:
             logger.warning(f"Failed to run overwrite cleanup for {repo_name}", error=str(e))
-
-    # Assign repository ownership to authenticated user
-    user_repo.assign_repository_owner(current_user.id, repository_id, role="owner")
 
     # Dispatch Celery indexing task
     try:
@@ -92,7 +80,7 @@ def analyze_repository(
         logger.error("Failed to queue indexing task in Celery", error=str(e))
         raise HTTPException(status_code=500, detail=f"Failed to queue analysis task: {str(e)}")
 
-    logger.info("Queued repository analysis task", repository_id=repository_id, user_id=current_user.id)
+    logger.info("Queued repository analysis task", repository_id=repository_id)
     return {
         "repository_id": repository_id,
         "status": "queued"
@@ -100,20 +88,12 @@ def analyze_repository(
 
 @router.delete("/repositories/{repo_id}")
 def delete_repository(
-    repo_id: str,
-    current_user: User = Depends(get_current_user),
-    user_repo: UserRepository = Depends(get_user_repository)
+    repo_id: str
 ):
     """
     Deletes repository, associated graph nodes/edges, and vector representations.
-    Protected against IDOR: only the owning user may delete the repository.
     """
     validate_repository_id(repo_id)
-    if not user_repo.is_repository_owner(current_user.id, repo_id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Forbidden: You do not have permission to delete repository '{repo_id}'."
-        )
 
     try:
         cleanup_service = RepositoryCleanupService(settings.SQLITE_DB_PATH)
@@ -121,38 +101,62 @@ def delete_repository(
         return {"status": "success", "message": f"Repository {repo_id} deleted successfully"}
     except Exception as e:
         logger.error(f"Failed to delete repository {repo_id}", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+@router.get("/repositories/{repo_id}/status")
+async def get_repository_status(
+    repo_id: str
+):
+    """
+    Returns the authoritative repository status from Redis and SQLite.
+    Status values: 'queued', 'processing', 'completed', 'failed', 'unknown'.
+    """
+    validate_repository_id(repo_id)
+
+    # 1. Check Redis for active/cached status
+    redis_status = None
+    redis_message = None
+    try:
+        r = aioredis.Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT, db=0)
+        cached = await r.get(f"repo_status:{repo_id}")
+        await r.aclose()
+        if cached:
+            d_str = cached.decode("utf-8") if isinstance(cached, bytes) else cached
+            payload = json.loads(d_str)
+            redis_status = payload.get("status")
+            redis_message = payload.get("message")
+    except Exception:
+        pass
+
+    # 2. Check SQLite repository record
+    sqlite_status = None
+    try:
+        repo_db = get_graph_repository()
+        repo_data = repo_db.get_repository(repo_id)
+        if repo_data:
+            sqlite_status = repo_data.get("status")
+    except Exception:
+        pass
+
+    effective_status = redis_status or sqlite_status or "unknown"
+    if sqlite_status in ("completed", "failed") and redis_status not in ("completed", "failed"):
+        effective_status = sqlite_status
+
+    return {
+        "repository_id": repo_id,
+        "status": effective_status,
+        "message": redis_message,
+        "sqlite_status": sqlite_status,
+        "redis_status": redis_status
+    }
 
 @router.get("/repositories/{repo_id}/progress")
 async def progress_stream(
-    repo_id: str,
-    token: Optional[str] = Query(None),
-    authorization: Optional[str] = None,
-    user_repo: UserRepository = Depends(get_user_repository)
+    repo_id: str
 ):
     """
     Server-Sent Events (SSE) stream for live repository ingestion progress.
     Uses async Redis to prevent thread-blocking of FastAPI event loop.
-    Protected by token verification and repository authorization.
     """
     validate_repository_id(repo_id)
-    dev_bypass = os.getenv("DEV_AUTH_BYPASS", "true").lower() in ("true", "1", "yes")
-
-    # Resolve token from query param or header (EventSource compatibility)
-    auth_token = token
-    if not auth_token and authorization and authorization.startswith("Bearer "):
-        auth_token = authorization.split(" ")[1]
-
-    if not dev_bypass:
-        if not auth_token:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication token required for progress stream")
-        try:
-            payload = decode_access_token(auth_token)
-            user_id = payload.get("sub")
-            if not user_id or not user_repo.is_repository_owner(user_id, repo_id):
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to view progress for this repository")
-        except ValueError as e:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid token: {e}")
 
     async def event_generator():
         r = aioredis.Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT, db=0)

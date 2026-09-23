@@ -123,11 +123,9 @@ class GraphApplicationService:
                         relationship=rtype
                     ))
 
-        # Add DEPENDS edges between files via dependency service
-        file_nodes = [n for n in nodes if n["type"] == "File"]
-        for fn in file_nodes:
-            fid = fn["id"]
-            file_deps = self.dep_service.get_file_dependencies(fid, repo_id)
+        # Add DEPENDS edges between files via dependency service in a single batch pass
+        file_deps_map = self.dep_service.get_all_file_dependencies(repo_id, nodes=nodes)
+        for fid, file_deps in file_deps_map.items():
             for dep in file_deps:
                 if dep in node_id_set:
                     edge_key = (fid, dep, "DEPENDS")
@@ -244,6 +242,41 @@ class GraphApplicationService:
                     ))
 
         return RepositoryGraphResponse(nodes=graph_nodes, edges=graph_edges)
+
+    def repository_id_for_node(self, node_id: str) -> Optional[str]:
+        """
+        Walk inbound edges to the repository record that contains node_id.
+        Returns None when the node is missing or not attached to a repository.
+        """
+        if not node_id:
+            return None
+        repo = self.repository
+        visited = set()
+        queue = [node_id]
+        while queue:
+            current = queue.pop(0)
+            if current in visited:
+                continue
+            visited.add(current)
+            if len(visited) > 10000:
+                break
+            getter = getattr(repo, "get_repository", None)
+            if getter is not None:
+                try:
+                    found = getter(current)
+                except Exception:
+                    found = None
+                if found:
+                    return current
+            try:
+                inbound = repo.get_inbound_edges(current) or []
+            except Exception:
+                inbound = []
+            for edge in inbound:
+                source = edge.get("source_node")
+                if source and source not in visited:
+                    queue.append(source)
+        return None
 
     def traverse_node(self, node_id: str) -> RepositoryGraphResponse:
         """Call Graph Overlay: Traverses CALLS paths starting from node_id."""

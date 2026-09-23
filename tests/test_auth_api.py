@@ -1,204 +1,146 @@
 import pytest
-import tempfile
-import os
-import time
-from datetime import datetime, timezone, timedelta
+from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
+from pathlib import Path
 
 from app.main import app
-from libs.auth.repository import UserRepository
-from libs.auth.dependencies import get_user_repository
-from libs.auth.security import hash_password, verify_password, create_access_token, decode_access_token
+from services.graph_service.infrastructure.repositories.sqlite_graph_repository import SQLiteGraphRepository
+
 
 @pytest.fixture
-def auth_client():
-    temp_dir = tempfile.mkdtemp()
-    db_path = os.path.join(temp_dir, "auth_test_users.db")
-    repo = UserRepository(db_path)
+def api_client():
+    return TestClient(app)
 
-    # Explicitly override the user repository for auth endpoints
-    app.dependency_overrides[get_user_repository] = lambda: repo
-    client = TestClient(app)
-    
-    yield client, repo
 
-    app.dependency_overrides.pop(get_user_repository, None)
-    try:
-        if os.path.exists(db_path):
-            os.remove(db_path)
-        os.rmdir(temp_dir)
-    except Exception:
-        pass
+def test_repository_listing_works_without_authorization(api_client, tmp_path):
+    """GET /api/v1/graph/repositories returns 200 without any Authorization header."""
+    res = api_client.get("/api/v1/graph/repositories")
+    assert res.status_code == 200
+    assert isinstance(res.json(), list)
 
-def test_password_hashing_and_verification():
-    raw_password = "supersecret_password_123"
-    pwd_hash, salt = hash_password(raw_password)
-    
-    assert pwd_hash is not None and len(pwd_hash) == 64
-    assert salt is not None and len(salt) == 32
-    assert verify_password(raw_password, pwd_hash, salt) is True
-    assert verify_password("wrong_password", pwd_hash, salt) is False
 
-def test_jwt_token_generation_and_expiry():
-    user_id = "test-user-123"
-    username = "alice"
-    
-    # Valid token
-    token = create_access_token(user_id, username, expires_delta=timedelta(minutes=15))
-    payload = decode_access_token(token)
-    assert payload["sub"] == user_id
-    assert payload["username"] == username
-    
-    # Expired token
-    expired_token = create_access_token(user_id, username, expires_delta=timedelta(seconds=-1))
-    with pytest.raises(ValueError, match="Token has expired"):
-        decode_access_token(expired_token)
-        
-    # Tampered token
-    tampered_token = token[:-5] + "aaaaa"
-    with pytest.raises(ValueError, match="JWT signature verification failed"):
-        decode_access_token(tampered_token)
-
-def test_register_success_and_duplicates(auth_client):
-    client, _ = auth_client
-    
-    # Valid registration
-    res = client.post("/api/v1/auth/register", json={
-        "email": "alice@example.com",
-        "username": "alice",
-        "password": "SecurePassword123"
-    })
-    assert res.status_code == 201
+@patch("app.api.v1.repositories.celery_app.send_task")
+def test_repository_analysis_accepted_without_authorization(mock_send, api_client):
+    """POST /api/v1/repositories/analyze accepted without Authorization header."""
+    res = api_client.post("/api/v1/repositories/analyze", json={"url": "https://8.8.8.8/sample/repo.git"})
+    assert res.status_code == 200
     data = res.json()
-    assert "access_token" in data
-    assert data["user"]["email"] == "alice@example.com"
-    assert data["user"]["username"] == "alice"
-    assert "password_hash" not in data["user"]
-    assert "salt" not in data["user"]
+    assert "repository_id" in data
+    assert data["status"] == "queued"
+    mock_send.assert_called_once()
 
-    # Duplicate username
-    res_dup_user = client.post("/api/v1/auth/register", json={
-        "email": "alice_other@example.com",
-        "username": "alice",
-        "password": "SecurePassword123"
-    })
-    assert res_dup_user.status_code == 400
-    assert "already taken" in res_dup_user.json()["detail"]
 
-    # Duplicate email
-    res_dup_email = client.post("/api/v1/auth/register", json={
-        "email": "alice@example.com",
-        "username": "alice2",
-        "password": "SecurePassword123"
-    })
-    assert res_dup_email.status_code == 400
-    assert "already registered" in res_dup_email.json()["detail"]
+def test_graph_data_access_works_without_authorization(api_client, tmp_path):
+    """GET /api/v1/graph/repositories/{id}/data returns graph data without Authorization."""
+    db_path = str(tmp_path / "test_graph.db")
+    repo = SQLiteGraphRepository(db_path=db_path)
+    repo.save_repository("repo-test-1", "sample", "/local/path", "python", "2026-01-01T00:00:00Z", "hash1")
+    repo.add_node("repo-test-1", "Repository", {"name": "sample", "path": "/local/path"})
 
-def test_register_validation_failures(auth_client):
-    client, _ = auth_client
-    
-    # Password too short (< 8 chars)
-    res = client.post("/api/v1/auth/register", json={
-        "email": "short@example.com",
-        "username": "shortpass",
-        "password": "123"
-    })
-    assert res.status_code == 422
+    with patch("app.api.v1.graph.get_graph_repository", return_value=repo):
+        res = api_client.get("/api/v1/graph/repositories/repo-test-1/data")
+        assert res.status_code == 200
+        data = res.json()
+        assert "nodes" in data
+        assert "edges" in data
 
-    # Invalid email format
-    res_bad_email = client.post("/api/v1/auth/register", json={
-        "email": "not-an-email",
-        "username": "bademail",
-        "password": "SecurePassword123"
-    })
-    assert res_bad_email.status_code == 422
 
-def test_login_and_me_endpoint(auth_client):
-    client, _ = auth_client
-    
-    # Register user
-    client.post("/api/v1/auth/register", json={
-        "email": "bob@example.com",
-        "username": "bob",
-        "password": "BobSecurePassword123"
-    })
-    
-    # Successful login
-    login_res = client.post("/api/v1/auth/login", json={
-        "username": "bob",
-        "password": "BobSecurePassword123"
-    })
-    assert login_res.status_code == 200
-    token_data = login_res.json()
-    assert "access_token" in token_data
-    assert token_data["token_type"] == "bearer"
-    token = token_data["access_token"]
-    
-    # Unauthenticated /me request
-    unauth_res = client.get("/api/v1/auth/me")
-    assert unauth_res.status_code == 401
-    
-    # Authenticated /me request
-    me_res = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
-    assert me_res.status_code == 200
-    me_data = me_res.json()
-    assert me_data["username"] == "bob"
-    assert me_data["email"] == "bob@example.com"
+def test_rag_route_executes_without_authorization(api_client):
+    """POST /api/v1/rag/query executes without Authorization header."""
+    from app.api.v1.rag import get_rag_service
+    from services.rag_service.domain.entities.rag_response import RAGResponse
+    from services.rag_service.domain.entities.retrieved_chunk import RetrievedChunk
 
-def test_idor_repository_and_session_isolation(auth_client):
-    client, user_repo = auth_client
-    
-    # Register User 1 (Alice)
-    client.post("/api/v1/auth/register", json={
-        "email": "alice@example.com",
-        "username": "alice",
-        "password": "Password123!"
-    })
-    alice_token = client.post("/api/v1/auth/login", json={
-        "username": "alice",
-        "password": "Password123!"
-    }).json()["access_token"]
-    
-    # Register User 2 (Bob)
-    client.post("/api/v1/auth/register", json={
-        "email": "bob@example.com",
-        "username": "bob",
-        "password": "Password123!"
-    })
-    bob_token = client.post("/api/v1/auth/login", json={
-        "username": "bob",
-        "password": "Password123!"
-    }).json()["access_token"]
-    
-    alice_profile = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {alice_token}"}).json()
-    bob_profile = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {bob_token}"}).json()
-    
-    # Assign repo and session exclusively to Alice
-    repo_id = "alice-private-repo"
-    session_id = "alice-private-session"
-    user_repo.assign_repository_owner(alice_profile["id"], repo_id)
-    user_repo.assign_session_owner(alice_profile["id"], session_id)
-    
-    # Verify Alice has access
-    assert user_repo.is_repository_owner(alice_profile["id"], repo_id) is True
-    assert user_repo.is_session_owner(alice_profile["id"], session_id) is True
-    
-    # Verify Bob is denied access
-    assert user_repo.is_repository_owner(bob_profile["id"], repo_id) is False
-    assert user_repo.is_session_owner(bob_profile["id"], session_id) is False
-    
-    # Test HTTP endpoint IDOR defense: Bob attempting to delete Alice's repository
-    bob_delete_res = client.delete(
-        f"/api/v1/repositories/{repo_id}",
-        headers={"Authorization": f"Bearer {bob_token}"}
+    mock_response = RAGResponse(
+        answer="Found answer.",
+        retrieved_chunks=[
+            RetrievedChunk(score=0.9, file_path="main.py", symbol_name="run", chunk_type="FUNCTION")
+        ],
+        provider="mock-provider",
+        model="mock-model",
+        latency_ms=50
     )
-    assert bob_delete_res.status_code == 403
-    assert "Forbidden" in bob_delete_res.json()["detail"]
+    mock_service = MagicMock()
+    mock_service.query_repository.return_value = mock_response
 
-    # Test HTTP endpoint IDOR defense: Bob attempting to read Alice's chat session
-    bob_chat_res = client.get(
-        f"/api/v1/chat/sessions/{session_id}",
-        headers={"Authorization": f"Bearer {bob_token}"}
-    )
-    assert bob_chat_res.status_code == 403
-    assert "Forbidden" in bob_chat_res.json()["detail"]
+    app.dependency_overrides[get_rag_service] = lambda: mock_service
+    try:
+        res = api_client.post("/api/v1/rag/query", json={
+            "repository_id": "test-repo",
+            "question": "Where is the entrypoint?"
+        })
+        assert res.status_code == 200
+        data = res.json()
+        assert data["answer"] == "Found answer."
+    finally:
+        app.dependency_overrides.pop(get_rag_service, None)
+
+
+def test_chat_session_lifecycle_without_authorization(api_client):
+    """Chat session creation, listing, retrieval, and deletion without Authorization."""
+    # 1. Create session
+    create_res = api_client.post("/api/v1/chat/sessions", json={"repository_id": "test-repo"})
+    assert create_res.status_code == 200
+    session_data = create_res.json()
+    session_id = session_data["session_id"]
+    assert session_id
+
+    # 2. Get session
+    get_res = api_client.get(f"/api/v1/chat/sessions/{session_id}")
+    assert get_res.status_code == 200
+    assert get_res.json()["session_id"] == session_id
+
+    # 3. List sessions
+    list_res = api_client.get("/api/v1/chat/sessions?repository_id=test-repo")
+    assert list_res.status_code == 200
+    assert any(s["session_id"] == session_id for s in list_res.json())
+
+    # 4. Delete session
+    del_res = api_client.delete(f"/api/v1/chat/sessions/{session_id}")
+    assert del_res.status_code == 200
+
+
+def test_search_endpoints_work_without_authorization(api_client):
+    """Search endpoints accept requests without Authorization."""
+    from app.api.v1.search import get_search_service
+    from app.main import app as main_app
+    mock_service = MagicMock()
+    mock_service.search_semantic.return_value = []
+    mock_service.search_similar_code.return_value = []
+    mock_service.search_security_findings.return_value = []
+
+    main_app.dependency_overrides[get_search_service] = lambda: mock_service
+    try:
+        res1 = api_client.post("/api/v1/search/semantic", json={"repository_id": "repo-1", "query": "auth"})
+        assert res1.status_code == 200
+
+        res2 = api_client.post("/api/v1/search/similar", json={"repository_id": "repo-1", "code": "def run():"})
+        assert res2.status_code == 200
+
+        res3 = api_client.post("/api/v1/search/security", json={"repository_id": "repo-1", "query": "cve"})
+        assert res3.status_code == 200
+    finally:
+        main_app.dependency_overrides.pop(get_search_service, None)
+
+
+def test_auth_routes_no_longer_exist(api_client):
+    """Authentication endpoints return 404 since they were completely removed."""
+    res_reg = api_client.post("/api/v1/auth/register", json={"username": "alice", "email": "a@a.com", "password": "pwd"})
+    assert res_reg.status_code == 404
+
+    res_login = api_client.post("/api/v1/auth/login", json={"username": "alice", "password": "pwd"})
+    assert res_login.status_code == 404
+
+    res_me = api_client.get("/api/v1/auth/me")
+    assert res_me.status_code == 404
+
+
+def test_frontend_does_not_inject_authorization_header():
+    """Verify frontend code does not store JWTs or inject Authorization headers."""
+    api_ts_path = Path(__file__).resolve().parents[1] / "apps" / "frontend" / "src" / "services" / "api.ts"
+    content = api_ts_path.read_text(encoding="utf-8")
+    assert "Bearer" not in content
+    assert "Authorization" not in content
+    assert "gitty_access_token" not in content
+    assert "login(" not in content
+    assert "register(" not in content

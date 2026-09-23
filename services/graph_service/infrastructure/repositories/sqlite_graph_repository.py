@@ -1,6 +1,6 @@
 import sqlite3
 import json
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Set, Tuple
 from contextlib import contextmanager
 from ...domain.repositories.graph_repository import IGraphRepository
 from ...domain.repositories.node_repository import INodeRepository
@@ -37,9 +37,16 @@ class SQLiteGraphRepository(IGraphRepository, INodeRepository, IEdgeRepository, 
                     root_path TEXT NOT NULL,
                     language TEXT,
                     indexed_at TEXT,
-                    hash TEXT
+                    hash TEXT,
+                    status TEXT DEFAULT 'completed'
                 )
             """)
+
+            # Ensure status column exists for databases created with earlier schema
+            cursor.execute("PRAGMA table_info(repositories)")
+            cols = [info[1] for info in cursor.fetchall()]
+            if "status" not in cols:
+                cursor.execute("ALTER TABLE repositories ADD COLUMN status TEXT DEFAULT 'completed'")
 
             # 2. Nodes table
             cursor.execute("""
@@ -65,10 +72,13 @@ class SQLiteGraphRepository(IGraphRepository, INodeRepository, IEdgeRepository, 
                 )
             """)
 
-            # 4. Indexes
+            # 4. Indexes (including composite indexes for fast traversal and filtering)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_relationships_source ON relationships(source_node)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_relationships_target ON relationships(target_node)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_relationships_type ON relationships(relationship_type)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_relationships_src_type ON relationships(source_node, relationship_type)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_relationships_tgt_type ON relationships(target_node, relationship_type)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_nodes_type ON nodes(type)")
             conn.commit()
 
     def clear_database(self) -> None:
@@ -98,19 +108,26 @@ class SQLiteGraphRepository(IGraphRepository, INodeRepository, IEdgeRepository, 
             }
 
     # Repository operations
-    def save_repository(self, repo_id: str, name: str, root_path: str, language: str, indexed_at: str, repo_hash: str) -> None:
+    def save_repository(self, repo_id: str, name: str, root_path: str, language: str, indexed_at: str, repo_hash: str, status: str = "completed") -> None:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT INTO repositories (id, name, root_path, language, indexed_at, hash)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO repositories (id, name, root_path, language, indexed_at, hash, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     name=excluded.name,
                     root_path=excluded.root_path,
                     language=excluded.language,
                     indexed_at=excluded.indexed_at,
-                    hash=excluded.hash
-            """, (repo_id, name, root_path, language, indexed_at, repo_hash))
+                    hash=excluded.hash,
+                    status=excluded.status
+            """, (repo_id, name, root_path, language, indexed_at, repo_hash, status))
+            conn.commit()
+
+    def update_repository_status(self, repo_id: str, status: str) -> None:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE repositories SET status = ? WHERE id = ?", (status, repo_id))
             conn.commit()
 
     def get_repository(self, repo_id: str) -> Optional[Dict[str, Any]]:
@@ -142,11 +159,11 @@ class SQLiteGraphRepository(IGraphRepository, INodeRepository, IEdgeRepository, 
                     batch = node_ids[i:i + batch_size]
                     placeholders = ",".join("?" for _ in batch)
                     cursor.execute(
-                        f"DELETE FROM relationships WHERE source_node IN ({placeholders}) OR target_node IN ({placeholders})",
+                        f"DELETE FROM relationships WHERE source_node IN ({placeholders}) OR target_node IN ({placeholders})",  # nosec B608
                         batch + batch
                     )
                     cursor.execute(
-                        f"DELETE FROM nodes WHERE id IN ({placeholders})",
+                        f"DELETE FROM nodes WHERE id IN ({placeholders})",  # nosec B608
                         batch
                     )
             cursor.execute("DELETE FROM repositories WHERE id = ?", (repo_id,))
@@ -249,7 +266,7 @@ class SQLiteGraphRepository(IGraphRepository, INodeRepository, IEdgeRepository, 
             for i in range(0, len(node_ids), batch_size):
                 batch = node_ids[i:i + batch_size]
                 placeholders = ",".join("?" for _ in batch)
-                cursor.execute(f"SELECT * FROM nodes WHERE id IN ({placeholders})", batch)
+                cursor.execute(f"SELECT * FROM nodes WHERE id IN ({placeholders})", batch)  # nosec B608
                 for r in cursor.fetchall():
                     res_dict = dict(r)
                     meta = json.loads(res_dict["metadata"] or "{}")
@@ -333,7 +350,7 @@ class SQLiteGraphRepository(IGraphRepository, INodeRepository, IEdgeRepository, 
                 batch = node_ids[i:i + batch_size]
                 placeholders = ",".join("?" for _ in batch)
                 cursor.execute(
-                    f"SELECT source_node, target_node, relationship_type, metadata FROM relationships WHERE source_node IN ({placeholders})",
+                    f"SELECT source_node, target_node, relationship_type, metadata FROM relationships WHERE source_node IN ({placeholders})",  # nosec B608
                     batch
                 )
                 for r in cursor.fetchall():
@@ -346,34 +363,123 @@ class SQLiteGraphRepository(IGraphRepository, INodeRepository, IEdgeRepository, 
                     })
         return res
 
+    def get_inbound_and_outbound_degree_counts(self, node_ids: List[str]) -> tuple[Dict[str, int], Dict[str, int]]:
+        """
+        Calculates inbound and outbound relationship degree counts for given node_ids.
+        Uses batched GROUP BY SQL queries to avoid N+1 scans.
+        """
+        if not node_ids:
+            return {}, {}
+        inbound: Dict[str, int] = {}
+        outbound: Dict[str, int] = {}
+        batch_size = 400
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            for i in range(0, len(node_ids), batch_size):
+                batch = node_ids[i:i + batch_size]
+                placeholders = ",".join("?" for _ in batch)
+                cursor.execute(
+                    f"SELECT target_node, COUNT(*) FROM relationships WHERE target_node IN ({placeholders}) GROUP BY target_node",  # nosec B608
+                    batch
+                )
+                for tgt, cnt in cursor.fetchall():
+                    inbound[tgt] = cnt
+
+                cursor.execute(
+                    f"SELECT source_node, COUNT(*) FROM relationships WHERE source_node IN ({placeholders}) GROUP BY source_node",  # nosec B608
+                    batch
+                )
+                for src, cnt in cursor.fetchall():
+                    outbound[src] = cnt
+        return inbound, outbound
+
+    def get_referenced_nodes_batch(self, source_node_ids: List[str], relationship_types: List[str]) -> Set[str]:
+        """
+        Finds all target_nodes referenced by source_node_ids via the given relationship_types.
+        Used for batching _build_called_function_ids and call graph lookups.
+        """
+        if not source_node_ids:
+            return set()
+        referenced: Set[str] = set()
+        batch_size = 400
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            for i in range(0, len(source_node_ids), batch_size):
+                batch = source_node_ids[i:i + batch_size]
+                placeholders = ",".join("?" for _ in batch)
+                if relationship_types:
+                    rtype_placeholders = ",".join("?" for _ in relationship_types)
+                    query = f"SELECT DISTINCT target_node FROM relationships WHERE source_node IN ({placeholders}) AND relationship_type IN ({rtype_placeholders})"  # nosec B608
+                    params = batch + list(relationship_types)
+                else:
+                    query = f"SELECT DISTINCT target_node FROM relationships WHERE source_node IN ({placeholders})"  # nosec B608
+                    params = batch
+                cursor.execute(query, params)
+                for row in cursor.fetchall():
+                    referenced.add(row[0])
+        return referenced
+
+    def get_referenced_targets_batch(self, target_node_ids: List[str], relationship_types: List[str]) -> Set[str]:
+        """
+        Finds all target_nodes from target_node_ids that have at least one inbound relationship
+        matching relationship_types. Used for batching detect_orphan_classes.
+        """
+        if not target_node_ids:
+            return set()
+        referenced: Set[str] = set()
+        batch_size = 400
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            for i in range(0, len(target_node_ids), batch_size):
+                batch = target_node_ids[i:i + batch_size]
+                placeholders = ",".join("?" for _ in batch)
+                if relationship_types:
+                    rtype_placeholders = ",".join("?" for _ in relationship_types)
+                    query = f"SELECT DISTINCT target_node FROM relationships WHERE target_node IN ({placeholders}) AND relationship_type IN ({rtype_placeholders})"  # nosec B608
+                    params = batch + list(relationship_types)
+                else:
+                    query = f"SELECT DISTINCT target_node FROM relationships WHERE target_node IN ({placeholders})"  # nosec B608
+                    params = batch
+                cursor.execute(query, params)
+                for row in cursor.fetchall():
+                    referenced.add(row[0])
+        return referenced
+
     # Traversal operations
     def traverse_bfs(self, start_id: str, edge_types: List[str]) -> List[str]:
+        """
+        Breadth-first search traversal starting from start_id.
+        Uses batched level-by-level SQL lookups to avoid per-node queries.
+        """
         visited = {start_id}
-        queue = [start_id]
         order = []
+        current_level = [start_id]
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            while queue:
-                curr = queue.pop(0)
-                order.append(curr)
+            while current_level:
+                order.extend(current_level)
+                next_level = []
 
-                # Fetch child nodes linked via given edge types
-                if edge_types:
-                    placeholders = ",".join("?" for _ in edge_types)
-                    query = f"SELECT target_node FROM relationships WHERE source_node = ? AND relationship_type IN ({placeholders})"
-                    params = [curr] + edge_types
-                else:
-                    query = "SELECT target_node FROM relationships WHERE source_node = ?"
-                    params = [curr]
+                batch_size = 400
+                for i in range(0, len(current_level), batch_size):
+                    batch = current_level[i:i + batch_size]
+                    placeholders = ",".join("?" for _ in batch)
+                    if edge_types:
+                        type_placeholders = ",".join("?" for _ in edge_types)
+                        query = f"SELECT DISTINCT target_node FROM relationships WHERE source_node IN ({placeholders}) AND relationship_type IN ({type_placeholders})"  # nosec B608
+                        params = batch + list(edge_types)
+                    else:
+                        query = f"SELECT DISTINCT target_node FROM relationships WHERE source_node IN ({placeholders})"  # nosec B608
+                        params = batch
 
-                cursor.execute(query, params)
-                neighbors = [r[0] for r in cursor.fetchall()]
+                    cursor.execute(query, params)
+                    for (target,) in cursor.fetchall():
+                        if target not in visited:
+                            visited.add(target)
+                            next_level.append(target)
+                current_level = next_level
 
-                for n in neighbors:
-                    if n not in visited:
-                        visited.add(n)
-                        queue.append(n)
         return order
 
     def traverse_dfs(self, start_id: str, edge_types: List[str]) -> List[str]:
@@ -389,7 +495,7 @@ class SQLiteGraphRepository(IGraphRepository, INodeRepository, IEdgeRepository, 
 
                 if edge_types:
                     placeholders = ",".join("?" for _ in edge_types)
-                    query = f"SELECT target_node FROM relationships WHERE source_node = ? AND relationship_type IN ({placeholders})"
+                    query = f"SELECT target_node FROM relationships WHERE source_node = ? AND relationship_type IN ({placeholders})"  # nosec B608
                     params = [node_id] + edge_types
                 else:
                     query = "SELECT target_node FROM relationships WHERE source_node = ?"

@@ -1,56 +1,121 @@
-from abc import ABC, abstractmethod
-from typing import Dict, Any, List
+"""LLM provider package for Gitty AI.
 
-class BaseLLM(ABC):
-    @property
-    @abstractmethod
-    def provider_name(self) -> str:
-        pass
+Exported symbols
+----------------
+BaseLLM                   – abstract base class
+MockLLM                   – deterministic test double
+OllamaProvider            – local Ollama daemon
+OpenAICompatibleProvider  – OpenAI API or any OpenAI-compat server
+LocalLlamaCppProvider     – llama.cpp /v1/chat/completions endpoint
 
-    @property
-    @abstractmethod
-    def model_name(self) -> str:
-        pass
+get_llm_provider(provider, model, **kwargs) – factory used by ChatService
+"""
+from __future__ import annotations
 
-    @abstractmethod
-    def generate(self, prompt: str, system_prompt: str = None, options: Dict[str, Any] = None) -> str:
-        pass
+from typing import Any, Optional
 
-class MockLLM(BaseLLM):
-    def __init__(self, provider: str = "mock", model: str = "mock-model"):
-        self._provider = provider
-        self._model = model
+from .base import BaseLLM
+from .mock import MockLLM
+from .ollama import OllamaProvider
+from .openai import OpenAICompatibleProvider
+from .local_llamacpp import LocalLlamaCppProvider
 
-    @property
-    def provider_name(self) -> str:
-        return self._provider
 
-    @property
-    def model_name(self) -> str:
-        return self._model
+def get_llm_provider(
+    provider: str,
+    model: str,
+    **kwargs: Any,
+) -> BaseLLM:
+    """Return a configured LLM provider instance.
 
-    def generate(self, prompt: str, system_prompt: str = None, options: Dict[str, Any] = None) -> str:
-        return f"Mock response from {self._provider} ({self._model}) for query: {prompt[:30]}..."
+    Parameters
+    ----------
+    provider:
+        One of ``"mock"``, ``"ollama"``, ``"openai"``, ``"llamacpp"``.
+        Compared case-insensitively.  Unknown values fall back to MockLLM
+        with a warning rather than raising, so the application keeps running.
+    model:
+        Model identifier forwarded to the selected provider.
+    **kwargs:
+        Extra keyword arguments passed through to the provider constructor
+        (e.g. ``base_url``, ``timeout``, ``api_key``).
 
-def get_llm_provider(provider_name: str, model_name: str) -> BaseLLM:
-    provider_name_lower = provider_name.lower()
-    if provider_name_lower == "ollama":
-        from .ollama import OllamaProvider
-        return OllamaProvider(model_name=model_name)
-    elif provider_name_lower == "openai":
-        from .openai import OpenAICompatibleProvider
-        return OpenAICompatibleProvider(model_name=model_name)
-    elif provider_name_lower == "claude":
-        from .claude import ClaudeProvider
-        return ClaudeProvider(model_name=model_name)
-    elif provider_name_lower == "gemini":
-        from .gemini import GeminiProvider
-        return GeminiProvider(model_name=model_name)
-    elif provider_name_lower == "mock":
-        return MockLLM(provider=provider_name, model=model_name)
-    else:
-        raise ValueError(
-            f"Unsupported LLM provider: '{provider_name}'. "
-            f"Valid options are: ollama, openai, claude, gemini, mock. "
-            f"Check the LLM_PROVIDER setting in your .env file."
+    Notes
+    -----
+    When ``GITTY_LLM_ENABLED`` is *True* in ``SystemSettings``, the factory
+    prefers ``llamacpp`` over ``ollama`` unless the caller explicitly passes
+    a different provider name.  This keeps the existing ``LLM_PROVIDER``
+    setting working unchanged while adding the new local path.
+    """
+    import logging
+    log = logging.getLogger("gitty.llm")
+
+    p = (provider or "mock").strip().lower()
+
+    # When the local llama.cpp server is explicitly enabled via GITTY_LLM_ENABLED
+    # and the caller has not already requested a specific non-default provider,
+    # promote "llamacpp" automatically so existing LLM_PROVIDER=ollama deployments
+    # keep working while new local-LLM deployments opt in via the env var alone.
+    if p in ("ollama", "mock"):
+        try:
+            from libs.config import get_settings as _gs
+            _s = _gs()
+            if getattr(_s, "GITTY_LLM_ENABLED", False):
+                p = "llamacpp"
+        except Exception:
+            pass
+
+    if p == "llamacpp":
+        from libs.config import get_settings
+        s = get_settings()
+        base_url = kwargs.pop("base_url", s.GITTY_LLM_BASE_URL)
+        timeout = kwargs.pop("timeout", s.GITTY_LLM_TIMEOUT)
+        return LocalLlamaCppProvider(
+            model_name=model or s.GITTY_LLM_MODEL,
+            base_url=base_url,
+            timeout=timeout,
+            **kwargs,
         )
+
+    if p == "ollama":
+        from libs.config import get_settings
+        s = get_settings()
+        base_url = kwargs.pop("base_url", s.OLLAMA_URI)
+        timeout = kwargs.pop("timeout", 30.0)
+        return OllamaProvider(model_name=model, base_url=base_url, timeout=timeout, **kwargs)
+
+    if p == "openai":
+        from libs.config import get_settings
+        s = get_settings()
+        api_key = kwargs.pop("api_key", s.OPENAI_API_KEY or "sk-no-key")
+        base_url = kwargs.pop("base_url", None)
+        timeout = kwargs.pop("timeout", 30.0)
+        return OpenAICompatibleProvider(
+            model_name=model,
+            api_key=api_key,
+            base_url=base_url,
+            timeout=timeout,
+            **kwargs,
+        )
+
+    if p == "mock":
+        response = kwargs.pop("response", "")
+        return MockLLM(model_name=model, response=response)
+
+    # Unknown provider — degrade gracefully, never crash the application.
+    log.warning(
+        "Unknown LLM provider %r — falling back to MockLLM.  "
+        "Set LLM_PROVIDER to one of: mock, ollama, openai, llamacpp.",
+        provider,
+    )
+    return MockLLM(model_name=model)
+
+
+__all__ = [
+    "BaseLLM",
+    "MockLLM",
+    "OllamaProvider",
+    "OpenAICompatibleProvider",
+    "LocalLlamaCppProvider",
+    "get_llm_provider",
+]

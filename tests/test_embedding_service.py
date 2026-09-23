@@ -1,11 +1,11 @@
 import pytest
 from services.vector_service.domain.value_objects.chunk import Chunk
-from services.vector_service.infrastructure.embeddings.sentence_transformer_provider import SentenceTransformerProvider
+from services.vector_service.infrastructure.embeddings.sentence_transformer_provider import MockEmbeddingProvider
 from services.vector_service.infrastructure.embeddings.sqlite_embedding_cache import SQLiteEmbeddingCache
 from services.vector_service.application.services.embedding_service import EmbeddingService
 
 def test_embedding_provider_mock_dimensions():
-    provider = SentenceTransformerProvider(force_mock=True)
+    provider = MockEmbeddingProvider(dimensions=384, model_name="unit-test-mock")
     assert provider.dimensions == 384
     
     vec = provider.embed("hello world")
@@ -31,7 +31,7 @@ def test_sqlite_embedding_cache(tmp_path):
     assert cached == embedding
 
 def test_embedding_service_with_cache(tmp_path):
-    provider = SentenceTransformerProvider(force_mock=True)
+    provider = MockEmbeddingProvider(dimensions=384, model_name="unit-test-mock")
     db_path = str(tmp_path / "test_cache.db")
     cache = SQLiteEmbeddingCache(db_path=db_path)
     

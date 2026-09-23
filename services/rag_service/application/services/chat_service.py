@@ -17,6 +17,9 @@ from ...domain.entities.chat_session import ChatSession, ChatMessage
 from ...domain.entities.retrieved_chunk import RetrievedChunk
 from ...domain.repositories.chat_session_repository import IChatSessionRepository
 from .prompt_builder import PromptBuilder
+from .graph_context_expander import assemble_hybrid_context
+
+_UNSET = object()
 
 class ChatService:
     def __init__(
@@ -24,7 +27,8 @@ class ChatService:
         search_service: SemanticSearchService,
         session_repo: IChatSessionRepository,
         llm_provider: Optional[BaseLLM] = None,
-        publisher: Optional[IEventBus] = None
+        publisher: Optional[IEventBus] = None,
+        graph_repo: Any = _UNSET,
     ):
         self.settings = get_settings()
         self.search_service = search_service
@@ -35,6 +39,21 @@ class ChatService:
         )
         self.publisher = publisher
         self.prompt_builder = PromptBuilder()
+        self._graph_repo = None if graph_repo is _UNSET else graph_repo
+        self._graph_repo_configured = graph_repo is not _UNSET
+
+    def _resolve_graph_repo(self):
+        if self._graph_repo_configured:
+            return self._graph_repo
+        try:
+            from services.graph_service.infrastructure.repositories.graph_repository_factory import (
+                get_graph_repository,
+            )
+            self._graph_repo = get_graph_repository()
+        except Exception:
+            self._graph_repo = None
+        self._graph_repo_configured = True
+        return self._graph_repo
 
     def create_session(self, repository_id: str) -> ChatSession:
         session_id = str(uuid.uuid4())
@@ -165,6 +184,11 @@ class ChatService:
                 ))
 
         retrieved_chunks = retrieved_chunks[:limit]
+        prompt_chunks = assemble_hybrid_context(
+            self._resolve_graph_repo(),
+            session.repository_id,
+            retrieved_chunks,
+        )
 
         if self.publisher:
             try:
@@ -181,16 +205,17 @@ class ChatService:
         # 4. Construct prompt via PromptBuilder
         prompt = self.prompt_builder.build_chat_prompt(
             question=content,
-            retrieved_chunks=retrieved_chunks,
+            retrieved_chunks=prompt_chunks,
             history=history,
             repository_id=session.repository_id
         )
 
-        # 5. Generate Answer via LLM with graceful error recovery
+        # 5. Generate Answer via LLM with graceful error recovery.
+        # system_prompt matches the boundary minted by build_chat_prompt.
         try:
             answer = self.llm_provider.generate(
                 prompt=prompt,
-                system_prompt=self.prompt_builder.DEFAULT_SYSTEM_PROMPT
+                system_prompt=self.prompt_builder.system_prompt
             )
         except Exception as e:
             error_msg = str(e)

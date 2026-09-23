@@ -270,8 +270,6 @@ class TypescriptParser(IParser):
                 imports.append(IRImport(module=module_name, name="*", line_number=line_no))
 
         def scan_top_level(node):
-            nonlocal imports, classes, functions, top_level_calls
-            
             for child in node.children:
                 if child.type == "import_statement":
                     process_import(child)

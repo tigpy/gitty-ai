@@ -53,6 +53,7 @@ export const GraphToolbar: React.FC<ToolbarProps> = ({
           className="console-btn"
           style={{ padding: '4px 6px' }}
           title="Zoom In"
+          aria-label="Zoom in"
         >
           <ZoomIn size={12} />
         </button>
@@ -61,6 +62,7 @@ export const GraphToolbar: React.FC<ToolbarProps> = ({
           className="console-btn"
           style={{ padding: '4px 6px' }}
           title="Zoom Out"
+          aria-label="Zoom out"
         >
           <ZoomOut size={12} />
         </button>
@@ -69,9 +71,10 @@ export const GraphToolbar: React.FC<ToolbarProps> = ({
           className="console-btn"
           style={{ padding: '4px 8px', gap: '4px', fontSize: '10px' }}
           title="Reset & Center View"
+          aria-label="Reset and center view"
         >
           <RotateCcw size={11} />
-          <span>RESET</span>
+          <span>FIT</span>
         </button>
       </div>
 
@@ -92,18 +95,28 @@ export const GraphToolbar: React.FC<ToolbarProps> = ({
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
           <Activity size={11} style={{ color: status === 'STABLE' ? 'var(--status-green)' : 'var(--ink-muted)' }} />
-          <span style={{ color: 'var(--ink-muted)' }}>NODES:</span>
-          <span className="mono-num" style={{ color: 'var(--ink-primary)', fontWeight: 600 }}>{nodesCount}</span>
+          <span style={{ color: 'var(--ink-muted)' }}>N</span>
+          <span className="mono-num" style={{
+            color: nodesCount > 0 ? 'var(--accent-amber-bright)' : 'var(--ink-primary)',
+            fontWeight: 600,
+          }}>
+            {nodesCount.toLocaleString()}
+          </span>
         </div>
 
-        <span style={{ color: 'var(--hairline)' }}>|</span>
+        <span style={{ color: 'var(--ink-faint)' }}>|</span>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <span style={{ color: 'var(--ink-muted)' }}>EDGES:</span>
-          <span className="mono-num" style={{ color: 'var(--ink-primary)', fontWeight: 600 }}>{edgesCount}</span>
+          <span style={{ color: 'var(--ink-muted)' }}>E</span>
+          <span className="mono-num" style={{
+            color: edgesCount > 0 ? 'var(--accent-amber-bright)' : 'var(--ink-primary)',
+            fontWeight: 600,
+          }}>
+            {edgesCount.toLocaleString()}
+          </span>
         </div>
 
-        <span style={{ color: 'var(--hairline)' }}>|</span>
+        <span style={{ color: 'var(--ink-faint)' }}>|</span>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
           {status === 'STABLE' && nodesCount > 0 ? (

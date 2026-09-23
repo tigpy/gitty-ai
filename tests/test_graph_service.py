@@ -62,18 +62,20 @@ def test_get_repository_graph_initial(tmp_path):
          
         graph_response = service.get_repository_graph("repo-1")
         
-        # Verify Repo node, File nodes, Contains edges and File dependencies edges
-        assert len(graph_response.nodes) == 3 # Repo + 2 Files
+        # Verify Repo node, File nodes, Import node, Contains edges, Imports edge, and File dependencies edges
+        assert len(graph_response.nodes) == 4 # Repo + 2 Files + 1 Import
         repo_node = next(n for n in graph_response.nodes if n.node_type == "REPOSITORY")
         file1 = next(n for n in graph_response.nodes if n.id == "file-1")
         file2 = next(n for n in graph_response.nodes if n.id == "file-2")
+        imp1 = next(n for n in graph_response.nodes if n.id == "imp-1")
         
         assert repo_node.label == "my-repo"
         assert file1.security_score == 75 # 100 - 25 (High deduction)
         assert file2.dead_code is True
+        assert imp1.node_type == "IMPORT"
         
-        # Verify contains edges + depends edge (file-1 depends on file-2 because of import)
-        assert len(graph_response.edges) == 3 # 2 CONTAINS, 1 DEPENDS
+        # Verify contains edges + imports edge + depends edge (file-1 depends on file-2 because of import)
+        assert len(graph_response.edges) == 4 # 2 CONTAINS, 1 IMPORTS, 1 DEPENDS
         depends_edge = next(e for e in graph_response.edges if e.relationship == "DEPENDS")
         assert depends_edge.source == "file-1"
         assert depends_edge.target == "file-2"

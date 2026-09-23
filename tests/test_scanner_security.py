@@ -58,11 +58,15 @@ def test_scanner_executes_git_with_security_flags(tmp_path):
         
         # Verify git clone security arguments
         assert cmd[0] == "git"
-        assert cmd[1] == "clone"
-        assert "-c" in cmd
+        assert "clone" in cmd
+        assert "credential.helper=" in cmd
         assert "core.symlinks=false" in cmd
+        assert "http.followRedirects=false" in cmd
+        assert "--depth=1" in cmd
         assert "--" in cmd
-        # Ensure -- occurs before the URL argument to prevent argument injection
+        # Security config is passed before the clone subcommand, so clone is not argv[1].
+        assert cmd.index("clone") > cmd.index("core.symlinks=false")
+        assert cmd.index("clone") > cmd.index("http.followRedirects=false")
         dash_idx = cmd.index("--")
         url_idx = cmd.index(test_url)
         assert dash_idx < url_idx

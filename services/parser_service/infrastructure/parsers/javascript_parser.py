@@ -205,8 +205,6 @@ class JavascriptParser(IParser):
                 ))
 
         def scan_top_level(node):
-            nonlocal imports, classes, functions, top_level_calls
-            
             for child in node.children:
                 if child.type == "import_statement":
                     process_import(child)
